@@ -1,22 +1,20 @@
 `timescale 1ns / 1ps
 
-module ff_sync #(
-	parameter RESET_VALUE = 1'b0
-) (
+module ff_sync (
 	input clk,
 	input resetn,
-	input async_in,
-	output reg sync_out
+	input in,
+	output reg out
 );
-	reg meta;
+reg in_r;
 
-	always @(posedge clk) begin
-		if (!resetn) begin
-			meta <= RESET_VALUE;
-			sync_out <= RESET_VALUE;
-		end else begin
-			meta <= async_in;
-			sync_out <= meta;
-		end
+always @(posedge clk) begin
+	if (!resetn) begin
+		in_r <= 0;
+		out  <= 0;
+	end else begin
+		in_r <= in;
+		out  <= in_r;
 	end
+end
 endmodule
