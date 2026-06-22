@@ -11,7 +11,7 @@ module spawn_queue #(
 	input wire enable,
 
 	input wire pop,
-	output wire [9:0] spawn_data,
+	output wire [10:0] spawn_data,
 	output wire empty,
 
 	output wire full,
@@ -20,25 +20,31 @@ module spawn_queue #(
 localparam TYPE_COIN_1 = 0;
 localparam TYPE_COIN_3 = 1;
 localparam TYPE_COIN_5 = 2;
-localparam TYPE_MINUS5 = 3;
+localparam TYPE_MINUS3 = 3;
+localparam TYPE_MINUS5 = 4;
+localparam TYPE_TIME = 5;
+localparam TYPE_CHARGE = 6;
 
 wire [31:0] pos_rnd;
 wire [31:0] type_rnd;
 wire [3:0] cand_lane = pos_rnd[3:0];
 wire [3:0] cand_xoff = pos_rnd[7:4];
 wire [6:0] cand_pct  = type_rnd[6:0];
-reg [1:0] cand_type;
+reg [2:0] cand_type;
 
 wire cand_valid = cand_pct < 100;
 wire cand_next = enable && !full;
 wire fifo_wr_en = cand_next && cand_valid;
-wire [9:0] fifo_wr_data = {cand_lane, cand_xoff, cand_type};
+wire [10:0] fifo_wr_data = {cand_lane, cand_xoff, cand_type};
 
 always @(*) begin
-	     if (cand_pct < 50) cand_type = TYPE_COIN_1;
-	else if (cand_pct < 75) cand_type = TYPE_COIN_3;
-	else if (cand_pct < 90) cand_type = TYPE_COIN_5;
-	else                    cand_type = TYPE_MINUS5;
+	     if (cand_pct < 30) cand_type = TYPE_COIN_1;
+	else if (cand_pct < 50) cand_type = TYPE_COIN_3;
+	else if (cand_pct < 60) cand_type = TYPE_COIN_5;
+	else if (cand_pct < 75) cand_type = TYPE_MINUS3;
+	else if (cand_pct < 85) cand_type = TYPE_MINUS5;
+	else if (cand_pct < 90) cand_type = TYPE_TIME;
+	else                    cand_type = TYPE_CHARGE;
 end
 
 lfsr32 #(
@@ -60,7 +66,7 @@ lfsr32 #(
 );
 
 fifo #(
-	.WIDTH(10),
+	.WIDTH(11),
 	.DEPTH(FIFO_DEPTH)
 ) u_spawn_fifo (
 	.clk(clk),

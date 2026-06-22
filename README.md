@@ -97,9 +97,10 @@ output [0:0]  out_axis_tuser;
 Board buttons are active-low at the physical pin and become active-high pressed levels inside the game.
 
 ```text
-btn_left   pin 16
-btn_right  pin 13
-btn_start  pin 17
+btn_left   pin 13
+btn_right  pin 17
+btn_start  pin 18
+btn_skill  pin 16
 ```
 
 Input path:
@@ -138,19 +139,25 @@ The state register stays inside `game_ctrl`; render layers only receive the simp
 
 ### Timer and Score
 
-- `timer` starts from `TIMER_START`, currently 90 seconds.
+- `timer` starts from `TIMER_START`, currently 120 seconds.
 - `timer` decreases once every 60 frame ticks.
 - When `timer` reaches 0, the game enters game over.
 - `score` is displayed as 4 digits.
 - `high_score` updates only when the game enters game over.
+- `+time` objects add `TIME_BONUS`, currently 3 seconds.
+- `charge` objects add 1 skill charge, up to `SKILL_CHARGE_MAX`, currently 5.
+- `btn_skill` releases the skill only when charge is full; the current first version clears the charge bar.
 
-Object score rules:
+Object effects:
 
 ```text
 type 0: +1
 type 1: +3
 type 2: +5
-type 3: -5
+type 3: -3
+type 4: -5
+type 5: +time
+type 6: charge
 ```
 
 Negative score clamps at 0.
@@ -181,6 +188,18 @@ src/assets/player/player_right1_32.mem
 - Scaling: 2x pixel replication
 - Default fall speed: 2 px/frame
 - Default spawn period: 24 frames
+
+Object type probability:
+
+```text
++1      30%
++3      20%
++5      10%
+-3      15%
+-5      10%
++time    5%
+charge  10%
+```
 
 Per-object state:
 
@@ -215,7 +234,10 @@ Object assets:
 src/assets/objects/obj_plus1_16.mem
 src/assets/objects/obj_plus3_16.mem
 src/assets/objects/obj_plus5_16.mem
+src/assets/objects/obj_minus3_16.mem
 src/assets/objects/obj_minus5_16.mem
+src/assets/objects/obj_time_16.mem
+src/assets/objects/obj_charge_16.mem
 ```
 
 ## Render Layers
@@ -260,6 +282,7 @@ Current UI behavior:
 - no English labels
 - left/right button indicators at screen edges
 - center score blinks during game over
+- skill charge bar at the bottom, 5 segments
 - digits are logic-generated seven-segment shapes
 - UI receives `game_over`; it does not depend on the internal state encoding
 
@@ -277,7 +300,7 @@ Current UI behavior:
 All `.mem` sprite/tile assets are RGB565:
 
 ```text
-one pixel per line
+one pixel token per pixel
 4 hex digits per pixel
 row-major order
 transparent pixel = 0000

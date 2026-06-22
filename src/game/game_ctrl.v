@@ -4,7 +4,7 @@ module game_ctrl #(
 	parameter MAX_OBJ = 16,
 	parameter LANE_BITS = 4,
 	parameter XOFF_BITS = 4,
-	parameter OBJ_TYPE_BITS = 2,
+	parameter OBJ_TYPE_BITS = 3,
 	parameter OBJ_Y_BITS = 10,
 	parameter FALL_SPEED = 2,
 	parameter SPAWN_PERIOD_FRAMES = 24,
@@ -12,7 +12,9 @@ module game_ctrl #(
 	parameter PLAYER_HEIGHT = 64,
 	parameter PLAYER_START_X = 288,
 	parameter PLAYER_SPEED_START = 8,
-	parameter TIMER_START = 90,
+	parameter TIMER_START = 120,
+	parameter TIME_BONUS = 3,
+	parameter SKILL_CHARGE_MAX = 5,
 	parameter HIGH_SCORE_START = 0
 )(
 	input clk,
@@ -22,6 +24,7 @@ module game_ctrl #(
 	input btn_left,
 	input btn_right,
 	input btn_start,
+	input btn_skill,
 
 	output obj_ready,
 
@@ -38,6 +41,7 @@ module game_ctrl #(
 	output reg [9:0] timer,
 	output reg [13:0] score,
 	output reg [13:0] high_score,
+	output reg [2:0] skill_charge,
 	output game_over
 );
 localparam S_PLAY = 1;
@@ -46,7 +50,10 @@ localparam S_OVER = 2;
 localparam TYPE_COIN_1 = 0;
 localparam TYPE_COIN_3 = 1;
 localparam TYPE_COIN_5 = 2;
-localparam TYPE_MINUS5 = 3;
+localparam TYPE_MINUS3 = 3;
+localparam TYPE_MINUS5 = 4;
+localparam TYPE_TIME = 5;
+localparam TYPE_CHARGE = 6;
 
 localparam [9:0] SCREEN_W = 640;
 localparam [9:0] GAME_X0 = 64;
@@ -67,13 +74,18 @@ reg [1:0] state;
 reg [5:0] sec_cnt;
 reg [7:0] spawn_cnt;
 reg btn_start_q;
+reg btn_skill_q;
+reg skill_req;
 
 wire btn_start_rise = btn_start && !btn_start_q;
+wire btn_skill_rise = btn_skill && !btn_skill_q;
 wire can_left = player_x > player_speed;
 wire can_right = player_x + player_speed < PLAYER_MAX_X;
 wire pause;
+wire skill_ready = skill_charge >= SKILL_CHARGE_MAX;
+wire skill_fire = skill_req && skill_ready;
 
-wire [9:0] spawn_data;
+wire [10:0] spawn_data;
 wire spawn_fifo_empty;
 wire obj_has_room = obj_count < MAX_OBJ;
 wire remove_valid;
@@ -128,17 +140,31 @@ assign remove_valid = hit_valid || ground_valid;
 wire [4:0] remove_idx = hit_valid ? hit_idx : 0;
 
 reg [13:0] next_score;
+reg [9:0] next_timer;
+reg [2:0] next_charge;
 wire [13:0] final_score = hit_valid ? next_score : score;
 
 always @(*) begin
 	next_score = score;
+	next_timer = timer;
+	next_charge = skill_charge;
+
 	if (hit_valid) begin
 		case (obj_type[hit_idx])
 			TYPE_COIN_1: next_score = score + 1;
 			TYPE_COIN_3: next_score = score + 3;
 			TYPE_COIN_5: next_score = score + 5;
+			TYPE_MINUS3: next_score = score >= 3 ? score - 3 : 0;
 			TYPE_MINUS5: next_score = score >= 5 ? score - 5 : 0;
-			default: next_score = score;
+			TYPE_TIME: next_timer = timer + TIME_BONUS;
+			TYPE_CHARGE:
+				if (skill_charge < SKILL_CHARGE_MAX)
+					next_charge = skill_charge + 1;
+			default: begin
+				next_score = score;
+				next_timer = timer;
+				next_charge = skill_charge;
+			end
 		endcase
 	end
 end
@@ -174,10 +200,13 @@ always @(posedge clk) begin
 		timer <= TIMER_START;
 		score <= 0;
 		high_score <= HIGH_SCORE_START;
+		skill_charge <= 0;
 		state <= S_PLAY;
 		sec_cnt <= 0;
 		spawn_cnt <= SPAWN_PERIOD_FRAMES;
 		btn_start_q <= 0;
+		btn_skill_q <= 0;
+		skill_req <= 0;
 
 		for (i = 0; i < MAX_OBJ; i = i + 1) begin
 			obj_lane[i] <= 0;
@@ -187,6 +216,10 @@ always @(posedge clk) begin
 		end
 	end else begin
 		btn_start_q <= btn_start;
+		btn_skill_q <= btn_skill;
+
+		if (btn_skill_rise && skill_ready)
+			skill_req <= 1;
 
 		if (btn_start_rise) begin
 			player_x <= PLAYER_START_X;
@@ -195,6 +228,8 @@ always @(posedge clk) begin
 			obj_count <= 0;
 			timer <= TIMER_START;
 			score <= 0;
+			skill_charge <= 0;
+			skill_req <= 0;
 			state <= S_PLAY;
 			sec_cnt <= 0;
 			spawn_cnt <= SPAWN_PERIOD_FRAMES;
@@ -223,9 +258,16 @@ always @(posedge clk) begin
 					player_dir <= 1;
 				end
 
-				// Score update
+				// Hit effect update
 				if (hit_valid) begin
 					score <= next_score;
+					timer <= next_timer;
+					skill_charge <= next_charge;
+				end
+
+				if (skill_fire) begin
+					skill_charge <= 0;
+					skill_req <= 0;
 				end
 
 				// Object falling and spawning
@@ -244,9 +286,9 @@ always @(posedge clk) begin
 					end
 
 					if (spawn_pop) begin
-						obj_lane[obj_count - 1] <= spawn_data[9:6];
-						obj_xoff[obj_count - 1] <= spawn_data[5:2];
-						obj_type[obj_count - 1] <= spawn_data[1:0];
+						obj_lane[obj_count - 1] <= spawn_data[10:7];
+						obj_xoff[obj_count - 1] <= spawn_data[6:3];
+						obj_type[obj_count - 1] <= spawn_data[2:0];
 						obj_ypos[obj_count - 1] <= 0;
 						obj_count <= obj_count;
 					end else begin
@@ -259,9 +301,9 @@ always @(posedge clk) begin
 					end
 
 					if (spawn_pop) begin
-						obj_lane[obj_count] <= spawn_data[9:6];
-						obj_xoff[obj_count] <= spawn_data[5:2];
-						obj_type[obj_count] <= spawn_data[1:0];
+						obj_lane[obj_count] <= spawn_data[10:7];
+						obj_xoff[obj_count] <= spawn_data[6:3];
+						obj_type[obj_count] <= spawn_data[2:0];
 						obj_ypos[obj_count] <= 0;
 						obj_count <= obj_count + 1;
 					end
@@ -275,8 +317,8 @@ always @(posedge clk) begin
 				if (sec_cnt == 59) begin
 					sec_cnt <= 0;
 
-					if (timer > 1) begin
-						timer <= timer - 1;
+					if (next_timer > 1) begin
+						timer <= next_timer - 1;
 					end else begin
 						timer <= 0;
 						state <= S_OVER;

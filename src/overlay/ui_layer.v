@@ -8,6 +8,7 @@ module ui_layer #( `SVO_DEFAULT_PARAMS ) (
 	input [9:0] timer,
 	input [13:0] score,
 	input [13:0] high_score,
+	input [2:0] skill_charge,
 	input game_over,
 	input btn_left,
 	input btn_right,
@@ -36,12 +37,18 @@ localparam SEG_T = 5;
 localparam TIMER_X = 32;
 localparam SCORE_X = 263;
 localparam HIGH_SCORE_X = 494;
+localparam CHARGE_X = 220;
+localparam CHARGE_Y = 474;
+localparam CHARGE_W = 36;
+localparam CHARGE_H = 6;
+localparam CHARGE_GAP = 4;
 
 localparam [23:0] UI_BG_RGB      = 24'h181818;
 localparam [23:0] TIMER_RGB      = 24'hE8E8E8;
 localparam [23:0] SCORE_RGB      = 24'h20E0FF;
 localparam [23:0] HIGH_SCORE_RGB = 24'hE8E8E8;
 localparam [23:0] INDICATOR_RGB  = 24'h20FF40;
+localparam [23:0] CHARGE_RGB     = 24'hFFEA20;
 
 reg [`SVO_XYBITS-1:0] hcursor, vcursor;
 reg [4:0] blink_cnt;
@@ -164,6 +171,15 @@ wire score_pixel = number_pixel(pixel_x, pixel_y, SCORE_X, 4, score_d3, score_d2
 wire high_score_pixel = number_pixel(pixel_x, pixel_y, HIGH_SCORE_X, 4, high_score_d3, high_score_d2, high_score_d1, high_score_d0);
 wire score_on = !game_over || blink_on;
 wire in_ui = pixel_y >= UI_TOP;
+wire charge_y = pixel_y >= CHARGE_Y && pixel_y < CHARGE_Y + CHARGE_H;
+wire charge_pixel =
+	charge_y && (
+		(skill_charge > 0 && pixel_x >= CHARGE_X && pixel_x < CHARGE_X + CHARGE_W) ||
+		(skill_charge > 1 && pixel_x >= CHARGE_X + 1 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 1 * (CHARGE_W + CHARGE_GAP) + CHARGE_W) ||
+		(skill_charge > 2 && pixel_x >= CHARGE_X + 2 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 2 * (CHARGE_W + CHARGE_GAP) + CHARGE_W) ||
+		(skill_charge > 3 && pixel_x >= CHARGE_X + 3 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 3 * (CHARGE_W + CHARGE_GAP) + CHARGE_W) ||
+		(skill_charge > 4 && pixel_x >= CHARGE_X + 4 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 4 * (CHARGE_W + CHARGE_GAP) + CHARGE_W)
+	);
 wire left_indicator = btn_left && pixel_y >= UI_TOP + 8 && pixel_y < UI_TOP + 56 &&
 						pixel_x >= 4 && pixel_x < 20;
 wire right_indicator = btn_right && pixel_y >= UI_TOP + 8 && pixel_y < UI_TOP + 56 &&
@@ -177,6 +193,7 @@ assign out_axis_tdata = left_indicator ? INDICATOR_RGB :
 						timer_pixel ? TIMER_RGB :
 						score_on && score_pixel ? SCORE_RGB :
 						high_score_pixel ? HIGH_SCORE_RGB :
+						charge_pixel ? CHARGE_RGB :
 						in_ui ? UI_BG_RGB :
 						in_axis_tdata;
 

@@ -4,6 +4,7 @@ module top (
 	input btn_left,
 	input btn_right,
 	input btn_start,
+	input btn_skill,
 
 	output tmds_clk_n,
 	output tmds_clk_p,
@@ -17,9 +18,10 @@ wire pll_lock;
 wire sys_resetn;
 
 // synchronized and debounced button signals
-wire btn_left_syn, btn_left_deb; 
+wire btn_left_syn, btn_left_deb;
 wire btn_right_syn, btn_right_deb;
 wire btn_start_syn, btn_start_deb;
+wire btn_skill_syn, btn_skill_deb;
 
 wire game_tvalid;
 wire game_tready;
@@ -65,6 +67,13 @@ ff_sync u_btn_start_syn (
 	.out(btn_start_syn)
 );
 
+ff_sync u_btn_skill_syn (
+	.clk(clk_p),
+	.resetn(sys_resetn),
+	.in(btn_skill),
+	.out(btn_skill_syn)
+);
+
 debounce u_btn_left_deb (
 	.clk(clk_p),
 	.resetn(sys_resetn),
@@ -86,6 +95,13 @@ debounce u_btn_start_deb (
 	.out(btn_start_deb)
 );
 
+debounce u_btn_skill_deb (
+	.clk(clk_p),
+	.resetn(sys_resetn),
+	.in(btn_skill_syn),
+	.out(btn_skill_deb)
+);
+
 game_core #(
 	.SVO_MODE("640x480V")
 ) u_game_core (
@@ -95,6 +111,7 @@ game_core #(
 	.btn_left(btn_left_deb),
 	.btn_right(btn_right_deb),
 	.btn_start(btn_start_deb),
+	.btn_skill(btn_skill_deb),
 
 	.out_axis_tvalid(game_tvalid),
 	.out_axis_tready(game_tready),

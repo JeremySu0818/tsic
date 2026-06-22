@@ -16,6 +16,7 @@ module game_core #(
 	input btn_left,
 	input btn_right,
 	input btn_start,
+	input btn_skill,
 
 	output out_axis_tvalid,
 	input out_axis_tready,
@@ -25,7 +26,7 @@ module game_core #(
 localparam MAX_OBJ = 16;
 localparam LANE_BITS = 4;
 localparam XOFF_BITS = 4;
-localparam OBJ_TYPE_BITS = 2;
+localparam OBJ_TYPE_BITS = 3;
 localparam OBJ_Y_BITS = 10;
 
 wire bg_tvalid;
@@ -49,6 +50,7 @@ wire [MAX_OBJ*OBJ_TYPE_BITS-1:0] obj_type_bus;
 wire [9:0] timer;
 wire [13:0] score;
 wire [13:0] high_score;
+wire [2:0] skill_charge;
 wire obj_ready;
 wire game_over;
 
@@ -69,6 +71,7 @@ game_ctrl #(
 	.btn_left(btn_left),
 	.btn_right(btn_right),
 	.btn_start(btn_start),
+	.btn_skill(btn_skill),
 
 	.obj_ready(obj_ready),
 
@@ -84,6 +87,7 @@ game_ctrl #(
 	.timer(timer),
 	.score(score),
 	.high_score(high_score),
+	.skill_charge(skill_charge),
 	.game_over(game_over)
 );
 
@@ -139,6 +143,7 @@ ui_layer #( `SVO_PASS_PARAMS ) u_ui_layer (
 	.timer(timer),
 	.score(score),
 	.high_score(high_score),
+	.skill_charge(skill_charge),
 	.game_over(game_over),
 	.btn_left(btn_left),
 	.btn_right(btn_right),

@@ -6,7 +6,7 @@ module obj_layer #(
 	parameter MAX_OBJ       = 16,
 	parameter LANE_BITS     = 4,
 	parameter XOFF_BITS     = 4,
-	parameter OBJ_TYPE_BITS = 2,
+	parameter OBJ_TYPE_BITS = 3,
 	parameter OBJ_Y_BITS    = 10
 ) (
 	input clk,
@@ -120,12 +120,18 @@ wire [OBJ_ADDR_WIDTH-1:0] obj_addr = {obj_src_y, obj_src_x};
 wire [15:0] obj_plus1_rgb565;
 wire [15:0] obj_plus3_rgb565;
 wire [15:0] obj_plus5_rgb565;
+wire [15:0] obj_minus3_rgb565;
 wire [15:0] obj_minus5_rgb565;
+wire [15:0] obj_time_rgb565;
+wire [15:0] obj_charge_rgb565;
 wire [15:0] obj_rgb565 =
 	obj_type_d == 0 ? obj_plus1_rgb565 :
 	obj_type_d == 1 ? obj_plus3_rgb565 :
 	obj_type_d == 2 ? obj_plus5_rgb565 :
-						 obj_minus5_rgb565;
+	obj_type_d == 3 ? obj_minus3_rgb565 :
+	obj_type_d == 4 ? obj_minus5_rgb565 :
+	obj_type_d == 5 ? obj_time_rgb565 :
+						 obj_charge_rgb565;
 
 wire hit_player = pixel_x >= player_x && pixel_x < player_x + PLAYER_W &&
 				  pixel_y >= PLAYER_Y && pixel_y < PLAYER_Y + PLAYER_H;
@@ -249,11 +255,44 @@ rom #(
 	.DATA_WIDTH(16),
 	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
 	.DEPTH(256),
+	.INIT_FILE("src/assets/objects/obj_minus3_16.mem")
+) u_obj_minus3_rom (
+	.clk(clk),
+	.addr(obj_addr),
+	.data(obj_minus3_rgb565)
+);
+
+rom #(
+	.DATA_WIDTH(16),
+	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
+	.DEPTH(256),
 	.INIT_FILE("src/assets/objects/obj_minus5_16.mem")
 ) u_obj_minus5_rom (
 	.clk(clk),
 	.addr(obj_addr),
 	.data(obj_minus5_rgb565)
+);
+
+rom #(
+	.DATA_WIDTH(16),
+	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
+	.DEPTH(256),
+	.INIT_FILE("src/assets/objects/obj_time_16.mem")
+) u_obj_time_rom (
+	.clk(clk),
+	.addr(obj_addr),
+	.data(obj_time_rgb565)
+);
+
+rom #(
+	.DATA_WIDTH(16),
+	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
+	.DEPTH(256),
+	.INIT_FILE("src/assets/objects/obj_charge_16.mem")
+) u_obj_charge_rom (
+	.clk(clk),
+	.addr(obj_addr),
+	.data(obj_charge_rgb565)
 );
 
 rom #(
