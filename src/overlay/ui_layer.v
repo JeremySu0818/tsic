@@ -66,46 +66,64 @@ wire [3:0] high_score_d2 = (high_score / 14'd100) % 14'd10;
 wire [3:0] high_score_d1 = (high_score / 14'd10) % 14'd10;
 wire [3:0] high_score_d0 = high_score % 14'd10;
 
-function [6:0] digit_segments;
+function [6:0] digit_seg;
 	input [3:0] digit;
 	begin
 		case (digit)
-			4'd0: digit_segments = 7'b1111110;
-			4'd1: digit_segments = 7'b0110000;
-			4'd2: digit_segments = 7'b1101101;
-			4'd3: digit_segments = 7'b1111001;
-			4'd4: digit_segments = 7'b0110011;
-			4'd5: digit_segments = 7'b1011011;
-			4'd6: digit_segments = 7'b1011111;
-			4'd7: digit_segments = 7'b1110000;
-			4'd8: digit_segments = 7'b1111111;
-			4'd9: digit_segments = 7'b1111011;
-			default: digit_segments = 7'b0000001;
+			4'd0: digit_seg = 7'b1111110;
+			4'd1: digit_seg = 7'b0110000;
+			4'd2: digit_seg = 7'b1101101;
+			4'd3: digit_seg = 7'b1111001;
+			4'd4: digit_seg = 7'b0110011;
+			4'd5: digit_seg = 7'b1011011;
+			4'd6: digit_seg = 7'b1011111;
+			4'd7: digit_seg = 7'b1110000;
+			4'd8: digit_seg = 7'b1111111;
+			4'd9: digit_seg = 7'b1111011;
+			default: digit_seg = 7'b0000001;
 		endcase
 	end
 endfunction
 
-function digit_pixel;
+function [6:0] pixel_seg;
+	input [5:0] x;
+	input [5:0] y;
+	reg x_mid;
+	reg x_left;
+	reg x_right;
+	reg y_top;
+	reg y_mid;
+	reg y_bottom;
+	reg y_upper;
+	reg y_lower;
+	begin
+		x_mid = x >= SEG_T && x < DIGIT_W - SEG_T;
+		x_left = x < SEG_T;
+		x_right = x >= DIGIT_W - SEG_T;
+
+		y_top = y < SEG_T;
+		y_mid = y >= DIGIT_H / 2 - SEG_T / 2 &&
+				y < DIGIT_H / 2 + SEG_T / 2;
+		y_bottom = y >= DIGIT_H - SEG_T;
+		y_upper = y >= SEG_T && y < DIGIT_H / 2;
+		y_lower = y >= DIGIT_H / 2 && y < DIGIT_H - SEG_T;
+
+		pixel_seg[6] = x_mid && y_top;
+		pixel_seg[5] = x_right && y_upper;
+		pixel_seg[4] = x_right && y_lower;
+		pixel_seg[3] = x_mid && y_bottom;
+		pixel_seg[2] = x_left && y_lower;
+		pixel_seg[1] = x_left && y_upper;
+		pixel_seg[0] = x_mid && y_mid;
+	end
+endfunction
+
+function digit_on;
 	input [3:0] digit;
 	input [5:0] x;
 	input [5:0] y;
-	reg [6:0] seg;
-	reg a, b, c, d, e, f, g;
 	begin
-		seg = digit_segments(digit);
-
-		a = y < SEG_T && x >= SEG_T && x < DIGIT_W - SEG_T;
-		b = x >= DIGIT_W - SEG_T && y >= SEG_T && y < DIGIT_H / 2;
-		c = x >= DIGIT_W - SEG_T && y >= DIGIT_H / 2 && y < DIGIT_H - SEG_T;
-		d = y >= DIGIT_H - SEG_T && x >= SEG_T && x < DIGIT_W - SEG_T;
-		e = x < SEG_T && y >= DIGIT_H / 2 && y < DIGIT_H - SEG_T;
-		f = x < SEG_T && y >= SEG_T && y < DIGIT_H / 2;
-		g = y >= DIGIT_H / 2 - SEG_T / 2 && y < DIGIT_H / 2 + SEG_T / 2 &&
-			x >= SEG_T && x < DIGIT_W - SEG_T;
-
-		digit_pixel = (seg[6] && a) || (seg[5] && b) || (seg[4] && c) ||
-						(seg[3] && d) || (seg[2] && e) || (seg[1] && f) ||
-						(seg[0] && g);
+		digit_on = |(digit_seg(digit) & pixel_seg(x, y));
 	end
 endfunction
 
@@ -135,7 +153,7 @@ function number_pixel;
 					endcase
 
 					if (x >= digit_left && x < digit_left + DIGIT_W)
-						number_pixel = digit_pixel(digit, x - digit_left, y - DIGIT_Y);
+						number_pixel = digit_on(digit, x - digit_left, y - DIGIT_Y);
 				end
 			end
 		end
