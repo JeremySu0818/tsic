@@ -15,6 +15,8 @@ module game_ctrl #(
 	parameter TIMER_START = 60,
 	parameter TIME_BONUS = 3,
 	parameter SKILL_CHARGE_MAX = 5,
+	parameter SKILL_ENABLE = 0,
+	parameter SKILL_DURATION = 0,
 	parameter HIGH_SCORE_START = 0
 )(
 	input clk,
@@ -79,10 +81,10 @@ reg [7:0] spawn_period;
 
 wire btn_start_rise = btn_start && !btn_start_q;
 wire pause;
-wire [5:0] player_speed_eff = player_speed;
-wire [7:0] spawn_period_eff = spawn_period;
-wire can_left = player_x > player_speed_eff;
-wire can_right = player_x + player_speed_eff < PLAYER_MAX_X;
+wire skill_on;
+wire skill_start;
+wire can_left = player_x > player_speed;
+wire can_right = player_x + player_speed < PLAYER_MAX_X;
 
 wire [10:0] spawn_data;
 wire spawn_fifo_empty;
@@ -96,14 +98,20 @@ assign pause = 0;
 assign obj_ready = obj_has_room;
 assign game_over = state == S_OVER;
 
-skill_slot u_skill_slot (
+skill_slot #(
+	.ENABLE(SKILL_ENABLE),
+	.DURATION(SKILL_DURATION),
+	.CHARGE_MAX(SKILL_CHARGE_MAX)
+) u_skill_slot (
 	.clk(clk),
 	.resetn(resetn),
 	.tick(frame_tick && state == S_PLAY && !pause),
 	.restart(btn_start_rise),
 	.btn_skill(btn_skill),
 	.skill_charge(skill_charge),
-	.skill_timer(skill_timer)
+	.skill_timer(skill_timer),
+	.skill_on(skill_on),
+	.skill_start(skill_start)
 );
 
 spawn_queue u_spawn_queue (
@@ -179,7 +187,6 @@ reg [13:0] next_score;
 reg [9:0] next_timer;
 reg [2:0] next_charge;
 reg signed [5:0] score_delta;
-reg signed [6:0] score_delta_eff;
 reg signed [15:0] score_sum;
 wire [13:0] final_score = hit_valid ? next_score : score;
 
@@ -188,7 +195,6 @@ always @(*) begin
 	next_timer = timer;
 	next_charge = skill_charge;
 	score_delta = 0;
-	score_delta_eff = 0;
 	score_sum = score;
 
 	if (hit_valid) begin
@@ -208,9 +214,7 @@ always @(*) begin
 			end
 		endcase
 
-		score_delta_eff = score_delta;
-
-		score_sum = $signed({1'b0, score}) + score_delta_eff;
+		score_sum = $signed({1'b0, score}) + score_delta;
 		if (score_sum < 0)
 			next_score = 0;
 		else
@@ -290,13 +294,13 @@ always @(posedge clk) begin
 				// Direction control
 				if (btn_left && !btn_right) begin
 					if (can_left)
-						player_x <= player_x - player_speed_eff;
+						player_x <= player_x - player_speed;
 					else
 						player_x <= 0;
 					player_dir <= 0;
 				end else if (btn_right && !btn_left) begin
 					if (can_right)
-						player_x <= player_x + player_speed_eff;
+						player_x <= player_x + player_speed;
 					else
 						player_x <= PLAYER_MAX_X;
 					player_dir <= 1;
@@ -308,6 +312,9 @@ always @(posedge clk) begin
 					timer <= next_timer;
 					skill_charge <= next_charge;
 				end
+
+				if (skill_start)
+					skill_charge <= 0;
 
 				// Object falling and spawning
 				if (remove_valid) begin
@@ -349,7 +356,7 @@ always @(posedge clk) begin
 				end
 
 				if (spawn_pop)
-					spawn_cnt <= spawn_period_eff - 1;
+					spawn_cnt <= spawn_period - 1;
 				else if (spawn_cnt != 0)
 					spawn_cnt <= spawn_cnt - 1;
 

@@ -18,32 +18,30 @@ duration: 6 seconds
 git apply --ignore-whitespace .\skills\patches\invincible_2.patch
 ```
 
-這個 patch 會新增：
-
-```text
-src/game/skill_invincible_2.v
-```
-
-並修改：
+這個 patch 會修改：
 
 ```text
 src/game/game_ctrl.v
-hdmi_coin.gprj
 ```
 
-## Hook Points
+## Common Slot
 
-Base branch 已經把分數拆成：
+Base project 已經有共用 `skill_slot`，負責 skill 啟動、charge 檢查、timer 倒數與 `skill_on`。
+
+Patch 只會把 `SKILL_ENABLE` 改成 1、設定 `SKILL_DURATION`，並使用 `skill_on` 改負分處理。
+
+## Effect Hook
+
+Base branch 直接使用：
 
 ```verilog
 score_delta
-score_delta_eff
 ```
 
-Patch apply 後會加入 `inv2_on`，並把負分取相反數：
+Patch apply 後會新增 `score_delta_eff`，再用它更新分數：
 
 ```verilog
-if (inv2_on && score_delta < 0)
+if (skill_on && score_delta < 0)
     score_delta_eff = -score_delta;
 ```
 

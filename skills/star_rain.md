@@ -19,31 +19,30 @@ maximum active objects: still 16
 git apply --ignore-whitespace .\skills\patches\star_rain.patch
 ```
 
-這個 patch 會新增：
-
-```text
-src/game/skill_star_rain.v
-```
-
-並修改：
+這個 patch 會修改：
 
 ```text
 src/game/game_ctrl.v
-hdmi_coin.gprj
 ```
 
-## Hook Points
+## Common Slot
 
-Base branch 已經讓 spawn counter 使用：
+Base project 已經有共用 `skill_slot`，負責 skill 啟動、charge 檢查、timer 倒數與 `skill_on`。
+
+Patch 只會把 `SKILL_ENABLE` 改成 1、設定 `SKILL_DURATION`，並使用 `skill_on` 改 spawn period。
+
+## Effect Hook
+
+Base branch 直接使用：
 
 ```verilog
-spawn_period_eff
+spawn_period
 ```
 
-Patch apply 後會加入 `star_on`，並把有效生成週期改短：
+Patch apply 後會新增 `spawn_period_eff`，再讓 spawn counter reload 使用它：
 
 ```verilog
-spawn_period_eff = star_on ? STAR_SPAWN_PERIOD : spawn_period;
+spawn_period_eff = skill_on ? STAR_SPAWN_PERIOD : spawn_period;
 ```
 
 ## Test Points

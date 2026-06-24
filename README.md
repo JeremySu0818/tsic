@@ -158,8 +158,9 @@ The state register stays inside `game_ctrl`; render layers only receive the simp
 - `+time` objects add `TIME_BONUS`, currently 3 seconds.
 - `charge` objects add 1 skill charge, up to `SKILL_CHARGE_MAX`, currently 5.
 - In the base branch, `btn_skill` is wired but does not trigger a gameplay effect.
-- `skill_slot` is an empty shell and outputs `skill_timer = 0`.
-- Skill branches replace or extend `skill_slot` through files under `skills/patches/`.
+- `skill_slot` owns the common skill lifecycle: button edge detect, charge check, timer countdown, `skill_on`, and `skill_start`.
+- In the base branch, `SKILL_ENABLE = 0`, so `skill_slot` does not start or consume charge.
+- Skill patches enable the slot and connect one gameplay effect through existing hook points.
 
 Object effects:
 
@@ -184,7 +185,7 @@ Negative score clamps at 0.
 - Fixed y: 352
 - Movement: left / right only
 - Default speed: 8 px/frame
-- Skill speed hook: `player_speed_eff`
+- Skill patches can change the movement block locally.
 - Facing direction selects left or right sprite
 
 Player assets:
@@ -202,7 +203,7 @@ src/assets/player/player_right1_32.mem
 - Scaling: 2x pixel replication
 - Default fall speed: 2 px/frame
 - Default spawn period: 24 frames
-- Skill spawn hook: `spawn_period_eff`
+- Skill patches can change the spawn counter reload locally.
 
 Object type probability:
 
@@ -321,23 +322,37 @@ Base skill path:
 
 ```text
 game_ctrl
-  -> skill_slot          // empty shell, skill_timer = 0
+  -> skill_slot          // common lifecycle, disabled by default
   -> spawn_queue
   -> spawn_postprocess   // pass-through shell
   -> object registers
+```
+
+`skill_slot` owns the common logic shared by every skill branch:
+
+```text
+btn_skill rising edge
+charge full check
+skill_timer countdown
+skill_on
+skill_start
+charge clear trigger
 ```
 
 `game_ctrl` exposes the common hack points:
 
 ```text
 hit_player_l / hit_player_r / hit_player_t / hit_player_b
-score_delta / score_delta_eff
-player_speed_eff
-spawn_period_eff
+score_delta
+player_speed
+spawn_period
 spawn_postprocess
 ```
 
+The base branch uses these signals directly. Skill patches may introduce local effective signals such as `score_delta_eff`, `player_speed_eff`, or `spawn_period_eff` inside the patch itself.
+
 Skill specs are stored in `skills/`, one file per skill. Apply-ready patch files are stored in `skills/patches/`.
+Each patch only enables the common slot and changes the skill-specific effect.
 
 Patch usage:
 
@@ -462,7 +477,7 @@ Implemented:
 - player sprite rendering
 - UI layer with timer, score, high score, and button indicators
 - game controller with timer, movement, spawn queue, falling objects, collision, score, and high score update
-- skill base hooks with empty `skill_slot` and pass-through `spawn_postprocess`
+- skill base hooks with common `skill_slot` lifecycle and pass-through `spawn_postprocess`
 - button synchronization and debounce
 - PNG to RGB565 MEM conversion script
 - VS Code tasks for build/upload and asset conversion

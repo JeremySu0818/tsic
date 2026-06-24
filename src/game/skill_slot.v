@@ -1,6 +1,10 @@
 `timescale 1ns / 1ps
 
-module skill_slot (
+module skill_slot #(
+	parameter ENABLE = 0,
+	parameter DURATION = 0,
+	parameter CHARGE_MAX = 5
+)(
 	input clk,
 	input resetn,
 	input tick,
@@ -8,9 +12,41 @@ module skill_slot (
 	input btn_skill,
 	input [2:0] skill_charge,
 
-	output [7:0] skill_timer
+	output reg [7:0] skill_timer,
+	output skill_on,
+	output skill_start
 );
-// Base branch has no skill behavior. Skill patches replace or extend this slot.
-assign skill_timer = 0;
+reg [5:0] sec_cnt;
+reg btn_q;
+
+assign skill_on = skill_timer != 0;
+assign skill_start = ENABLE && btn_skill && !btn_q &&
+					 skill_charge >= CHARGE_MAX && !skill_on;
+
+always @(posedge clk) begin
+	if (!resetn) begin
+		skill_timer <= 0;
+		sec_cnt <= 0;
+		btn_q <= 0;
+	end else if (restart) begin
+		skill_timer <= 0;
+		sec_cnt <= 0;
+		btn_q <= 0;
+	end else begin
+		btn_q <= btn_skill;
+
+		if (skill_start) begin
+			skill_timer <= DURATION;
+			sec_cnt <= 0;
+		end else if (tick && skill_timer != 0) begin
+			if (sec_cnt == 59) begin
+				sec_cnt <= 0;
+				skill_timer <= skill_timer - 1;
+			end else begin
+				sec_cnt <= sec_cnt + 1;
+			end
+		end
+	end
+end
 
 endmodule

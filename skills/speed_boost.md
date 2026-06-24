@@ -18,31 +18,30 @@ boost speed: 12 px/frame
 git apply --ignore-whitespace .\skills\patches\speed_boost.patch
 ```
 
-這個 patch 會新增：
-
-```text
-src/game/skill_speed_boost.v
-```
-
-並修改：
+這個 patch 會修改：
 
 ```text
 src/game/game_ctrl.v
-hdmi_coin.gprj
 ```
 
-## Hook Points
+## Common Slot
 
-Base branch 已經讓移動使用：
+Base project 已經有共用 `skill_slot`，負責 skill 啟動、charge 檢查、timer 倒數與 `skill_on`。
+
+Patch 只會把 `SKILL_ENABLE` 改成 1、設定 `SKILL_DURATION`，並使用 `skill_on` 改移動速度。
+
+## Effect Hook
+
+Base branch 直接使用：
 
 ```verilog
-player_speed_eff
+player_speed
 ```
 
-Patch apply 後會加入 `speed_on`，並把有效速度改成：
+Patch apply 後會新增 `player_speed_eff`，再讓移動判斷和位置更新使用它：
 
 ```verilog
-player_speed_eff = speed_on ? SPEED_BOOST_VALUE : player_speed;
+player_speed_eff = skill_on ? SPEED_BOOST_VALUE : player_speed;
 ```
 
 ## Test Points

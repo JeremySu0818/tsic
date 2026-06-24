@@ -17,20 +17,28 @@ hitbox: player left/right each +16 pixels
 git apply --ignore-whitespace .\skills\patches\magnet.patch
 ```
 
-這個 patch 會新增：
-
-```text
-src/game/skill_magnet.v
-```
-
-並修改：
+這個 patch 會修改：
 
 ```text
 src/game/game_ctrl.v
-hdmi_coin.gprj
 ```
 
-## Hook Points
+## Common Slot
+
+Base project 已經有共用 `skill_slot`，負責：
+
+```text
+btn_skill edge detect
+charge full check
+skill_timer countdown
+skill_on
+skill_start
+啟動後清 charge
+```
+
+Patch 只會把 `SKILL_ENABLE` 改成 1、設定 `SKILL_DURATION`，並使用 `skill_on` 放大 hitbox。
+
+## Effect Hook
 
 Base branch 已經保留：
 
@@ -41,12 +49,12 @@ hit_player_t
 hit_player_b
 ```
 
-Patch apply 後會加入 `magnet_on`，並把左右碰撞範圍改寬：
+Patch apply 後會改成：
 
 ```verilog
-hit_player_l = magnet_on ? player_x - MAGNET_PAD : player_x;
-hit_player_r = magnet_on ? player_x + PLAYER_WIDTH + MAGNET_PAD
-                         : player_x + PLAYER_WIDTH;
+hit_player_l = skill_on ? player_x - MAGNET_PAD : player_x;
+hit_player_r = skill_on ? player_x + PLAYER_WIDTH + MAGNET_PAD
+                        : player_x + PLAYER_WIDTH;
 ```
 
 ## Test Points

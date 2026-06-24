@@ -1,72 +1,31 @@
---- a/hdmi_coin.gprj
-+++ b/hdmi_coin.gprj
-@@ -14,6 +14,7 @@
-         <File path="src/game/game_core.v" type="file.verilog" enable="1"/>
-         <File path="src/game/game_ctrl.v" type="file.verilog" enable="1"/>
-         <File path="src/game/skill_slot.v" type="file.verilog" enable="1"/>
-+        <File path="src/game/skill_gambler.v" type="file.verilog" enable="1"/>
-         <File path="src/game/spawn_postprocess.v" type="file.verilog" enable="1"/>
-         <File path="src/game/spawn_queue.v" type="file.verilog" enable="1"/>
-         <File path="src/hdmi/svo_defines.vh" type="file.verilog" enable="1"/>
 --- a/src/game/game_ctrl.v
 +++ b/src/game/game_ctrl.v
-@@ -15,6 +15,7 @@
+@@ -15,8 +15,8 @@
  	parameter TIMER_START = 60,
  	parameter TIME_BONUS = 3,
  	parameter SKILL_CHARGE_MAX = 5,
-+	parameter GAMBLER_DURATION = 10,
+-	parameter SKILL_ENABLE = 0,
+-	parameter SKILL_DURATION = 0,
++	parameter SKILL_ENABLE = 1,
++	parameter SKILL_DURATION = 10,
  	parameter HIGH_SCORE_START = 0
  )(
  	input clk,
-@@ -96,14 +97,21 @@
- assign obj_ready = obj_has_room;
- assign game_over = state == S_OVER;
- 
--skill_slot u_skill_slot (
-+wire skill_start;
-+wire gambler_on;
-+
-+skill_gambler #(
-+	.DURATION(GAMBLER_DURATION)
-+) u_skill_gambler (
- 	.clk(clk),
- 	.resetn(resetn),
- 	.tick(frame_tick && state == S_PLAY && !pause),
- 	.restart(btn_start_rise),
- 	.btn_skill(btn_skill),
- 	.skill_charge(skill_charge),
--	.skill_timer(skill_timer)
-+	.skill_timer(skill_timer),
-+	.gambler_on(gambler_on),
-+	.start_pulse(skill_start)
- );
- 
- spawn_queue u_spawn_queue (
-@@ -130,6 +138,7 @@
+@@ -140,6 +140,7 @@
  	.clk(clk),
  	.resetn(resetn),
  	.fire(spawn_pop),
-+	.gambler_on(gambler_on),
++	.skill_on(skill_on),
  	.raw_lane(spawn_lane_raw),
  	.raw_xoff(spawn_xoff_raw),
  	.raw_type(spawn_type_raw),
-@@ -309,6 +318,9 @@
- 					skill_charge <= next_charge;
- 				end
- 
-+				if (skill_start)
-+					skill_charge <= 0;
-+
- 				// Object falling and spawning
- 				if (remove_valid) begin
- 					for (i = 0; i < MAX_OBJ-1; i = i + 1) begin
 --- a/src/game/spawn_postprocess.v
 +++ b/src/game/spawn_postprocess.v
 @@ -8,6 +8,7 @@
  	input clk,
  	input resetn,
  	input fire,
-+	input gambler_on,
++	input skill_on,
  
  	input [LANE_BITS-1:0] raw_lane,
  	input [XOFF_BITS-1:0] raw_xoff,
@@ -89,7 +48,7 @@
 +
 +always @(*) begin
 +	out_type = raw_type;
-+	if (gambler_on && raw_type == TYPE_COIN_1) begin
++	if (skill_on && raw_type == TYPE_COIN_1) begin
 +		case (raw_xoff[1:0])
 +			0: out_type = TYPE_COIN_3;
 +			1: out_type = TYPE_COIN_5;
@@ -99,55 +58,3 @@
 +end
  
  endmodule
---- /dev/null
-+++ b/src/game/skill_gambler.v
-@@ -0,0 +1,49 @@
-+`timescale 1ns / 1ps
-+
-+module skill_gambler #(
-+	parameter DURATION = 10,
-+	parameter CHARGE_MAX = 5
-+)(
-+	input clk,
-+	input resetn,
-+	input tick,
-+	input restart,
-+	input btn_skill,
-+	input [2:0] skill_charge,
-+
-+	output reg [7:0] skill_timer,
-+	output gambler_on,
-+	output start_pulse
-+);
-+reg [5:0] sec_cnt;
-+reg btn_q;
-+
-+assign gambler_on = skill_timer != 0;
-+assign start_pulse = btn_skill && !btn_q && skill_charge >= CHARGE_MAX && !gambler_on;
-+
-+always @(posedge clk) begin
-+	if (!resetn) begin
-+		skill_timer <= 0;
-+		sec_cnt <= 0;
-+		btn_q <= 0;
-+	end else if (restart) begin
-+		skill_timer <= 0;
-+		sec_cnt <= 0;
-+		btn_q <= 0;
-+	end else begin
-+		btn_q <= btn_skill;
-+
-+		if (start_pulse) begin
-+			skill_timer <= DURATION;
-+			sec_cnt <= 0;
-+		end else if (tick && skill_timer != 0) begin
-+			if (sec_cnt == 59) begin
-+				sec_cnt <= 0;
-+				skill_timer <= skill_timer - 1;
-+			end else begin
-+				sec_cnt <= sec_cnt + 1;
-+			end
-+		end
-+	end
-+end
-+endmodule

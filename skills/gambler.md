@@ -17,21 +17,20 @@ duration: 10 seconds
 git apply --ignore-whitespace .\skills\patches\gambler.patch
 ```
 
-這個 patch 會新增：
-
-```text
-src/game/skill_gambler.v
-```
-
-並修改：
+這個 patch 會修改：
 
 ```text
 src/game/game_ctrl.v
 src/game/spawn_postprocess.v
-hdmi_coin.gprj
 ```
 
-## Hook Points
+## Common Slot
+
+Base project 已經有共用 `skill_slot`，負責 skill 啟動、charge 檢查、timer 倒數與 `skill_on`。
+
+Patch 只會把 `SKILL_ENABLE` 改成 1、設定 `SKILL_DURATION`，並把 `skill_on` 傳進 `spawn_postprocess`。
+
+## Effect Hook
 
 Base branch 已經在 `spawn_queue` 後面放了 pass-through：
 
@@ -39,10 +38,10 @@ Base branch 已經在 `spawn_queue` 後面放了 pass-through：
 spawn_postprocess
 ```
 
-Patch apply 後會加入 `gambler_on`，並在 `spawn_postprocess` 裡 remap `TYPE_COIN_1`：
+Patch apply 後會在 `spawn_postprocess` 裡 remap `TYPE_COIN_1`：
 
 ```verilog
-if (gambler_on && raw_type == TYPE_COIN_1)
+if (skill_on && raw_type == TYPE_COIN_1)
     out_type = TYPE_COIN_3 / TYPE_COIN_5 / TYPE_MINUS5;
 ```
 
