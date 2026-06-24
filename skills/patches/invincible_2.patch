@@ -1,0 +1,118 @@
+--- a/hdmi_coin.gprj
++++ b/hdmi_coin.gprj
+@@ -14,6 +14,7 @@
+         <File path="src/game/game_core.v" type="file.verilog" enable="1"/>
+         <File path="src/game/game_ctrl.v" type="file.verilog" enable="1"/>
+         <File path="src/game/skill_slot.v" type="file.verilog" enable="1"/>
++        <File path="src/game/skill_invincible_2.v" type="file.verilog" enable="1"/>
+         <File path="src/game/spawn_postprocess.v" type="file.verilog" enable="1"/>
+         <File path="src/game/spawn_queue.v" type="file.verilog" enable="1"/>
+         <File path="src/hdmi/svo_defines.vh" type="file.verilog" enable="1"/>
+--- a/src/game/game_ctrl.v
++++ b/src/game/game_ctrl.v
+@@ -15,6 +15,7 @@
+ 	parameter TIMER_START = 60,
+ 	parameter TIME_BONUS = 3,
+ 	parameter SKILL_CHARGE_MAX = 5,
++	parameter INV2_DURATION = 6,
+ 	parameter HIGH_SCORE_START = 0
+ )(
+ 	input clk,
+@@ -96,14 +97,21 @@
+ assign obj_ready = obj_has_room;
+ assign game_over = state == S_OVER;
+ 
+-skill_slot u_skill_slot (
++wire skill_start;
++wire inv2_on;
++
++skill_invincible_2 #(
++	.DURATION(INV2_DURATION)
++) u_skill_invincible_2 (
+ 	.clk(clk),
+ 	.resetn(resetn),
+ 	.tick(frame_tick && state == S_PLAY && !pause),
+ 	.restart(btn_start_rise),
+ 	.btn_skill(btn_skill),
+ 	.skill_charge(skill_charge),
+-	.skill_timer(skill_timer)
++	.skill_timer(skill_timer),
++	.inv2_on(inv2_on),
++	.start_pulse(skill_start)
+ );
+ 
+ spawn_queue u_spawn_queue (
+@@ -208,7 +216,10 @@
+ 			end
+ 		endcase
+ 
+-		score_delta_eff = score_delta;
++		if (inv2_on && score_delta < 0)
++			score_delta_eff = -score_delta;
++		else
++			score_delta_eff = score_delta;
+ 
+ 		score_sum = $signed({1'b0, score}) + score_delta_eff;
+ 		if (score_sum < 0)
+@@ -309,6 +320,9 @@
+ 					skill_charge <= next_charge;
+ 				end
+ 
++				if (skill_start)
++					skill_charge <= 0;
++
+ 				// Object falling and spawning
+ 				if (remove_valid) begin
+ 					for (i = 0; i < MAX_OBJ-1; i = i + 1) begin
+--- /dev/null
++++ b/src/game/skill_invincible_2.v
+@@ -0,0 +1,49 @@
++`timescale 1ns / 1ps
++
++module skill_invincible_2 #(
++	parameter DURATION = 6,
++	parameter CHARGE_MAX = 5
++)(
++	input clk,
++	input resetn,
++	input tick,
++	input restart,
++	input btn_skill,
++	input [2:0] skill_charge,
++
++	output reg [7:0] skill_timer,
++	output inv2_on,
++	output start_pulse
++);
++reg [5:0] sec_cnt;
++reg btn_q;
++
++assign inv2_on = skill_timer != 0;
++assign start_pulse = btn_skill && !btn_q && skill_charge >= CHARGE_MAX && !inv2_on;
++
++always @(posedge clk) begin
++	if (!resetn) begin
++		skill_timer <= 0;
++		sec_cnt <= 0;
++		btn_q <= 0;
++	end else if (restart) begin
++		skill_timer <= 0;
++		sec_cnt <= 0;
++		btn_q <= 0;
++	end else begin
++		btn_q <= btn_skill;
++
++		if (start_pulse) begin
++			skill_timer <= DURATION;
++			sec_cnt <= 0;
++		end else if (tick && skill_timer != 0) begin
++			if (sec_cnt == 59) begin
++				sec_cnt <= 0;
++				skill_timer <= skill_timer - 1;
++			end else begin
++				sec_cnt <= sec_cnt + 1;
++			end
++		end
++	end
++end
++endmodule

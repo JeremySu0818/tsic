@@ -32,6 +32,15 @@ hdmi_coin/
 |-- README.md
 |-- hdmi_coin.gprj
 |-- run.ps1
+|-- skills/
+|   |-- double_score.md
+|   |-- gambler.md
+|   |-- invincible_1.md
+|   |-- invincible_2.md
+|   |-- magnet.md
+|   |-- patches/
+|   |-- speed_boost.md
+|   `-- star_rain.md
 |-- .vscode/
 |   |-- tasks.json
 |   `-- launch.json
@@ -53,6 +62,8 @@ hdmi_coin/
     |-- game/
     |   |-- game_core.v
     |   |-- game_ctrl.v
+    |   |-- skill_slot.v
+    |   |-- spawn_postprocess.v
     |   `-- spawn_queue.v
     |-- overlay/
     |   |-- bg_layer.v
@@ -146,7 +157,9 @@ The state register stays inside `game_ctrl`; render layers only receive the simp
 - `high_score` updates only when the game enters game over.
 - `+time` objects add `TIME_BONUS`, currently 3 seconds.
 - `charge` objects add 1 skill charge, up to `SKILL_CHARGE_MAX`, currently 5.
-- `btn_skill` releases the skill only when charge is full; the current first version clears the charge bar.
+- In the base branch, `btn_skill` is wired but does not trigger a gameplay effect.
+- `skill_slot` is an empty shell and outputs `skill_timer = 0`.
+- Skill branches replace or extend `skill_slot` through files under `skills/patches/`.
 
 Object effects:
 
@@ -171,6 +184,7 @@ Negative score clamps at 0.
 - Fixed y: 352
 - Movement: left / right only
 - Default speed: 8 px/frame
+- Skill speed hook: `player_speed_eff`
 - Facing direction selects left or right sprite
 
 Player assets:
@@ -188,6 +202,7 @@ src/assets/player/player_right1_32.mem
 - Scaling: 2x pixel replication
 - Default fall speed: 2 px/frame
 - Default spawn period: 24 frames
+- Skill spawn hook: `spawn_period_eff`
 
 Object type probability:
 
@@ -200,6 +215,8 @@ Object type probability:
 +time    5%
 charge  10%
 ```
+
+`spawn_queue` creates raw spawn data. `spawn_postprocess` sits between `spawn_queue` and the object registers. The base version is pass-through, and skill branches can use it to remap object type or position without changing the raw queue.
 
 Per-object state:
 
@@ -283,6 +300,7 @@ Current UI behavior:
 - left/right button indicators at screen edges
 - center score blinks during game over
 - skill charge bar at the bottom, 5 segments
+- skill countdown timer near the charge bar, 2 small digits
 - digits are logic-generated seven-segment shapes
 - UI receives `game_over`; it does not depend on the internal state encoding
 
@@ -294,6 +312,58 @@ Current UI behavior:
 - `rom`: synchronous ROM wrapper for RGB565 assets
 - `fifo`: small synchronous FIFO used by `spawn_queue`
 - `lfsr32`: pseudo-random generator for object spawn logic; `spawn_queue` uses one LFSR for position and one for type
+
+## Skill Base
+
+The base branch intentionally does not implement any skill. It only exposes clean hook points so each teaching branch can apply one skill patch without changing the video pipeline.
+
+Base skill path:
+
+```text
+game_ctrl
+  -> skill_slot          // empty shell, skill_timer = 0
+  -> spawn_queue
+  -> spawn_postprocess   // pass-through shell
+  -> object registers
+```
+
+`game_ctrl` exposes the common hack points:
+
+```text
+hit_player_l / hit_player_r / hit_player_t / hit_player_b
+score_delta / score_delta_eff
+player_speed_eff
+spawn_period_eff
+spawn_postprocess
+```
+
+Skill specs are stored in `skills/`, one file per skill. Apply-ready patch files are stored in `skills/patches/`.
+
+Patch usage:
+
+```powershell
+git apply --ignore-whitespace .\skills\patches\magnet.patch
+```
+
+Each patch is intended to be applied on a fresh branch from this base. The patches are not designed to be stacked together.
+
+```text
+skills/magnet.md
+skills/double_score.md
+skills/speed_boost.md
+skills/invincible_1.md
+skills/invincible_2.md
+skills/star_rain.md
+skills/gambler.md
+
+skills/patches/magnet.patch
+skills/patches/double_score.patch
+skills/patches/speed_boost.patch
+skills/patches/invincible_1.patch
+skills/patches/invincible_2.patch
+skills/patches/star_rain.patch
+skills/patches/gambler.patch
+```
 
 ## Asset Format
 
@@ -392,6 +462,7 @@ Implemented:
 - player sprite rendering
 - UI layer with timer, score, high score, and button indicators
 - game controller with timer, movement, spawn queue, falling objects, collision, score, and high score update
+- skill base hooks with empty `skill_slot` and pass-through `spawn_postprocess`
 - button synchronization and debounce
 - PNG to RGB565 MEM conversion script
 - VS Code tasks for build/upload and asset conversion

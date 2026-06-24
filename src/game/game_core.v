@@ -51,6 +51,7 @@ wire [9:0] timer;
 wire [13:0] score;
 wire [13:0] high_score;
 wire [2:0] skill_charge;
+wire [7:0] skill_timer;
 wire obj_ready;
 wire game_over;
 
@@ -88,6 +89,7 @@ game_ctrl #(
 	.score(score),
 	.high_score(high_score),
 	.skill_charge(skill_charge),
+	.skill_timer(skill_timer),
 	.game_over(game_over)
 );
 
@@ -144,6 +146,7 @@ ui_layer #( `SVO_PASS_PARAMS ) u_ui_layer (
 	.score(score),
 	.high_score(high_score),
 	.skill_charge(skill_charge),
+	.skill_timer(skill_timer),
 	.game_over(game_over),
 	.btn_left(btn_left),
 	.btn_right(btn_right),
