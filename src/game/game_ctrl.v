@@ -313,7 +313,7 @@ always @(posedge clk) begin
 					skill_charge <= next_charge;
 				end
 
-				if (skill_start)
+				if (SKILL_ENABLE && skill_start)
 					skill_charge <= 0;
 
 				// Object falling and spawning

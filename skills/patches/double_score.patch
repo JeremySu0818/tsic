@@ -1,16 +1,18 @@
+--- a/src/game/game_core.v
++++ b/src/game/game_core.v
+@@ -10,7 +10,7 @@
+    parameter SVO_BITS_PER_RED     =    8,
+    parameter SVO_BITS_PER_GREEN   =    8,
+    parameter SVO_BITS_PER_BLUE    =    8,
+    parameter SVO_BITS_PER_ALPHA   =    0,
+-    parameter SKILL_ENABLE         =    0,
+-    parameter SKILL_DURATION       =    0
++    parameter SKILL_ENABLE         =    1,
++    parameter SKILL_DURATION       =    8
+ ) (
+    input clk,
 --- a/src/game/game_ctrl.v
 +++ b/src/game/game_ctrl.v
-@@ -15,8 +15,8 @@
-     parameter TIMER_START = 60,
-     parameter TIME_BONUS = 3,
-     parameter SKILL_CHARGE_MAX = 5,
--	parameter SKILL_ENABLE = 0,
--	parameter SKILL_DURATION = 0,
-+	parameter SKILL_ENABLE = 1,
-+	parameter SKILL_DURATION = 8,
-     parameter HIGH_SCORE_START = 0
- )(
-     input clk,
 @@ -187,5 +187,6 @@
  reg [9:0] next_timer;
  reg [2:0] next_charge;
@@ -19,22 +21,22 @@
  reg signed [15:0] score_sum;
  wire [13:0] final_score = hit_valid ? next_score : score;
 @@ -196,4 +197,5 @@
-     next_timer = timer;
-     next_charge = skill_charge;
-     score_delta = 0;
-+	score_delta_eff = 0;
-     score_sum = score;
+    next_timer = timer;
+    next_charge = skill_charge;
+    score_delta = 0;
++    score_delta_eff = 0;
+    score_sum = score;
 @@ -214,6 +216,11 @@
-             end
-         endcase
+            end
+        endcase
 -
 -        score_sum = $signed({1'b0, score}) + score_delta;
 +
-+		if (skill_on)
-+			score_delta_eff = score_delta <<< 1;
-+		else
-+			score_delta_eff = score_delta;
++        if (skill_on)
++            score_delta_eff = score_delta <<< 1;
++        else
++            score_delta_eff = score_delta;
 +
-+		score_sum = $signed({1'b0, score}) + score_delta_eff;
-         if (score_sum < 0)
-             next_score = 0;
++        score_sum = $signed({1'b0, score}) + score_delta_eff;
+        if (score_sum < 0)
+            next_score = 0;

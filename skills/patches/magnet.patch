@@ -1,17 +1,26 @@
+--- a/src/game/game_core.v
++++ b/src/game/game_core.v
+@@ -10,7 +10,7 @@
+    parameter SVO_BITS_PER_RED     =    8,
+    parameter SVO_BITS_PER_GREEN   =    8,
+    parameter SVO_BITS_PER_BLUE    =    8,
+    parameter SVO_BITS_PER_ALPHA   =    0,
+-    parameter SKILL_ENABLE         =    0,
+-    parameter SKILL_DURATION       =    0
++    parameter SKILL_ENABLE         =    1,
++    parameter SKILL_DURATION       =    15
+ ) (
+    input clk,
 --- a/src/game/game_ctrl.v
 +++ b/src/game/game_ctrl.v
-@@ -15,8 +15,9 @@
- 	parameter TIMER_START = 60,
- 	parameter TIME_BONUS = 3,
- 	parameter SKILL_CHARGE_MAX = 5,
--	parameter SKILL_ENABLE = 0,
--	parameter SKILL_DURATION = 0,
-+	parameter SKILL_ENABLE = 1,
-+	parameter SKILL_DURATION = 15,
-+	parameter MAGNET_PAD = 16,
- 	parameter HIGH_SCORE_START = 0
+@@ -17,6 +17,7 @@
+    parameter SKILL_CHARGE_MAX = 5,
+    parameter SKILL_ENABLE = 0,
+    parameter SKILL_DURATION = 0,
++    parameter MAGNET_PAD = 16,
+    parameter HIGH_SCORE_START = 0
  )(
- 	input clk,
+    input clk,
 @@ -152,7 +153,10 @@
  reg hit_valid;
  reg [4:0] hit_idx;
@@ -19,9 +28,9 @@
 -wire [10:0] hit_player_l = player_x;
 -wire [10:0] hit_player_r = player_x + PLAYER_WIDTH;
 +wire [10:0] hit_player_l = skill_on && player_x > MAGNET_PAD ?
-+							player_x - MAGNET_PAD : player_x;
++                            player_x - MAGNET_PAD : player_x;
 +wire [10:0] hit_player_r = skill_on ?
-+							player_x + PLAYER_WIDTH + MAGNET_PAD :
-+							player_x + PLAYER_WIDTH;
++                            player_x + PLAYER_WIDTH + MAGNET_PAD :
++                            player_x + PLAYER_WIDTH;
  wire [10:0] hit_player_t = PLAYER_Y;
  wire [10:0] hit_player_b = PLAYER_Y + PLAYER_HEIGHT;

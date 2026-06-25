@@ -8,7 +8,9 @@ module game_core #(
 	parameter SVO_BITS_PER_RED     =    8,
 	parameter SVO_BITS_PER_GREEN   =    8,
 	parameter SVO_BITS_PER_BLUE    =    8,
-	parameter SVO_BITS_PER_ALPHA   =    0
+	parameter SVO_BITS_PER_ALPHA   =    0,
+	parameter SKILL_ENABLE         =    0,
+	parameter SKILL_DURATION       =    0
 ) (
 	input clk,
 	input resetn,
@@ -63,7 +65,9 @@ game_ctrl #(
 	.LANE_BITS(LANE_BITS),
 	.XOFF_BITS(XOFF_BITS),
 	.OBJ_TYPE_BITS(OBJ_TYPE_BITS),
-	.OBJ_Y_BITS(OBJ_Y_BITS)
+	.OBJ_Y_BITS(OBJ_Y_BITS),
+	.SKILL_ENABLE(SKILL_ENABLE),
+	.SKILL_DURATION(SKILL_DURATION)
 ) u_game_ctrl (
 	.clk(clk),
 	.resetn(resetn),
@@ -138,7 +142,10 @@ obj_layer #(
 	.out_axis_tuser(obj_tuser)
 );
 
-ui_layer #( `SVO_PASS_PARAMS ) u_ui_layer (
+ui_layer #(
+	`SVO_PASS_PARAMS,
+	.SKILL_ENABLE(SKILL_ENABLE)
+) u_ui_layer (
 	.clk(clk),
 	.resetn(resetn),
 

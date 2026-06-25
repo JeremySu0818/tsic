@@ -1,7 +1,10 @@
 `timescale 1ns / 1ps
 `include "hdmi/svo_defines.vh"
 
-module ui_layer #( `SVO_DEFAULT_PARAMS ) (
+module ui_layer #(
+	`SVO_DEFAULT_PARAMS,
+	parameter SKILL_ENABLE = 0
+) (
 	input clk,
 	input resetn,
 
@@ -243,13 +246,13 @@ endfunction
 wire timer_pixel = number_pixel(pixel_x, pixel_y, TIMER_X, 3, timer_d2, timer_d1, timer_d0, 0);
 wire score_pixel = number_pixel(pixel_x, pixel_y, SCORE_X, 4, score_d3, score_d2, score_d1, score_d0);
 wire high_score_pixel = number_pixel(pixel_x, pixel_y, HIGH_SCORE_X, 4, high_score_d3, high_score_d2, high_score_d1, high_score_d0);
-wire skill_timer_on = skill_timer != 0;
+wire skill_timer_on = SKILL_ENABLE && (skill_timer != 0);
 wire skill_timer_pixel = skill_timer_on && small_number_pixel(pixel_x, pixel_y, SKILL_TIME_X, skill_timer_d1, skill_timer_d0);
 wire score_on = !game_over || blink_on;
 wire in_ui = pixel_y >= UI_TOP;
 wire charge_y = pixel_y >= CHARGE_Y && pixel_y < CHARGE_Y + CHARGE_H;
 wire charge_pixel =
-	charge_y && (
+	SKILL_ENABLE && charge_y && (
 		(skill_charge > 0 && pixel_x >= CHARGE_X && pixel_x < CHARGE_X + CHARGE_W) ||
 		(skill_charge > 1 && pixel_x >= CHARGE_X + 1 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 1 * (CHARGE_W + CHARGE_GAP) + CHARGE_W) ||
 		(skill_charge > 2 && pixel_x >= CHARGE_X + 2 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 2 * (CHARGE_W + CHARGE_GAP) + CHARGE_W) ||
