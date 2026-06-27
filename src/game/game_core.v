@@ -54,6 +54,7 @@ wire [9:0] score;
 wire [9:0] high_score;
 wire [2:0] skill_charge;
 wire [7:0] skill_timer;
+wire skill_on;
 wire obj_ready;
 wire game_over;
 
@@ -94,6 +95,7 @@ game_ctrl #(
 	.high_score(high_score),
 	.skill_charge(skill_charge),
 	.skill_timer(skill_timer),
+	.skill_on(skill_on),
 	.game_over(game_over)
 );
 
@@ -125,6 +127,7 @@ obj_layer #(
 
 	.player_x(player_x),
 	.player_dir(player_dir),
+	.skill_on(skill_on),
 	.obj_valid_bus(obj_valid_bus),
 	.obj_lane_bus(obj_lane_bus),
 	.obj_xoff_bus(obj_xoff_bus),

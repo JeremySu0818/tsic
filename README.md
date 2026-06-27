@@ -186,13 +186,14 @@ Negative score clamps at 0.
 - Movement: left / right only
 - Default speed: 8 px/frame
 - Skill patches can change the movement block locally.
-- Facing direction selects left or right sprite
+- Facing direction uses one right-facing sprite; left-facing display mirrors the sprite address
+- When `skill_on` is active, the player sprite switches to the fire skill sprite
 
 Player assets:
 
 ```text
-src/assets/player_left1_32.mem
-src/assets/player_right1_32.mem
+src/assets/player_right_32.mem
+src/assets/player_skill_32.mem
 ```
 
 ### Objects

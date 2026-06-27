@@ -15,6 +15,7 @@ module obj_layer #(
 	// object state from game controller
 	input [9:0] player_x,
 	input       player_dir,
+	input       skill_on,
 
 	input [MAX_OBJ              -1:0] obj_valid_bus,
 	input [MAX_OBJ*LANE_BITS    -1:0] obj_lane_bus,
@@ -55,7 +56,7 @@ reg [`SVO_XYBITS-1:0] vcursor;
 reg obj_hit_d;
 reg [OBJ_TYPE_BITS-1:0] obj_type_d;
 reg hit_player_d;
-reg player_dir_d;
+reg skill_on_d;
 reg [SVO_BITS_PER_PIXEL-1:0] bg_rgb_d;
 reg [0:0] tuser_d;
 reg tvalid_d;
@@ -141,12 +142,12 @@ wire [9:0] player_rel_x = pixel_x - player_x;
 wire [9:0] player_rel_y = pixel_y - PLAYER_Y;
 wire [PLAYER_SRC_BITS-1:0] player_src_x = player_rel_x[5:1];
 wire [PLAYER_SRC_BITS-1:0] player_src_y = player_rel_y[5:1];
-wire [PLAYER_SRC_ADDR_WIDTH-1:0] player_addr = {player_src_y, player_src_x};
+wire [PLAYER_SRC_BITS-1:0] player_addr_x = player_dir ? player_src_x : (5'd31 - player_src_x);
+wire [PLAYER_SRC_ADDR_WIDTH-1:0] player_addr = {player_src_y, player_addr_x};
 
-// Player facing direction selection
-wire [15:0] player_left_rgb565;
-wire [15:0] player_right_rgb565;
-wire [15:0] player_rgb565 = player_dir_d ? player_right_rgb565 : player_left_rgb565;
+wire [15:0] player_normal_rgb565;
+wire [15:0] player_skill_rgb565;
+wire [15:0] player_rgb565 = skill_on_d ? player_skill_rgb565 : player_normal_rgb565;
 
 function [23:0] rgb565_to_bgr888;
 	input [15:0] rgb565;
@@ -181,7 +182,7 @@ always @(posedge clk) begin
 		obj_hit_d <= 0;
 		obj_type_d <= 0;
 		hit_player_d <= 0;
-		player_dir_d <= 0;
+		skill_on_d <= 0;
 		bg_rgb_d <= 0;
 		tuser_d <= 0;
 		tvalid_d <= 0;
@@ -191,7 +192,7 @@ always @(posedge clk) begin
 			obj_hit_d <= obj_hit;
 			obj_type_d <= obj_type_now;
 			hit_player_d <= hit_player;
-			player_dir_d <= player_dir;
+			skill_on_d <= skill_on;
 			bg_rgb_d <= in_axis_tdata;
 			tuser_d <= in_axis_tuser;
 		end
@@ -299,22 +300,22 @@ rom #(
 	.DATA_WIDTH(16),
 	.ADDR_WIDTH(PLAYER_SRC_ADDR_WIDTH),
 	.DEPTH(1024),
-	.INIT_FILE("src/assets/player_left1_32.mem")
-) u_player_left_rom (
+	.INIT_FILE("src/assets/player_right_32.mem")
+) u_player_right_rom (
 	.clk(clk),
 	.addr(player_addr),
-	.data(player_left_rgb565)
+	.data(player_normal_rgb565)
 );
 
 rom #(
 	.DATA_WIDTH(16),
 	.ADDR_WIDTH(PLAYER_SRC_ADDR_WIDTH),
 	.DEPTH(1024),
-	.INIT_FILE("src/assets/player_right1_32.mem")
-) u_player_right_rom (
+	.INIT_FILE("src/assets/player_skill_32.mem")
+) u_player_skill_rom (
 	.clk(clk),
 	.addr(player_addr),
-	.data(player_right_rgb565)
+	.data(player_skill_rgb565)
 );
 
 endmodule

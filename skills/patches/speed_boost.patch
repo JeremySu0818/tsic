@@ -21,9 +21,8 @@
     parameter HIGH_SCORE_START = 0
  )(
     input clk,
-@@ -83,8 +84,9 @@
+@@ -83,7 +84,8 @@
  wire pause;
- wire skill_on;
  wire skill_start;
  wire skill_btn_active = btn_skill && state == S_PLAY && !pause;
 -wire can_left = player_x > player_speed;

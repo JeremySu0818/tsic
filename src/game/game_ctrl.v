@@ -46,6 +46,7 @@ module game_ctrl #(
 	output reg [9:0] high_score,
 	output reg [2:0] skill_charge,
 	output [7:0] skill_timer,
+	output skill_on,
 	output game_over
 );
 localparam S_PLAY = 1;
@@ -82,7 +83,6 @@ reg [7:0] spawn_period;
 
 wire btn_start_rise = btn_start && !btn_start_q;
 wire pause;
-wire skill_on;
 wire skill_start;
 wire skill_btn_active = btn_skill && state == S_PLAY && !pause;
 wire can_left = player_x > player_speed;
