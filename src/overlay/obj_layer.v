@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 `include "hdmi/svo_defines.vh"
+`include "game/game_defs.vh"
 
 module obj_layer #(
 	`SVO_DEFAULT_PARAMS,
@@ -37,15 +38,8 @@ module obj_layer #(
 );
 `SVO_DECLS
 
-localparam [9:0] GAME_X0 = 64;
-localparam [9:0] OBJ_W = 32;
-localparam [9:0] OBJ_H = 32;
-
-localparam PLAYER_W = 64;
-localparam PLAYER_H = 64;
 localparam PLAYER_SRC_BITS = 5;
 localparam PLAYER_SRC_ADDR_WIDTH = 10;
-localparam PLAYER_Y = 352;
 
 localparam OBJ_ADDR_WIDTH = 8;
 localparam [15:0] TRANSPARENT_VAL = 16'h0000;
@@ -78,7 +72,7 @@ reg [9:0] scan_local_y;
 function [9:0] obj_x;
 	input [LANE_BITS-1:0] lane;
 	input [XOFF_BITS-1:0] xoff;
-	begin obj_x = GAME_X0 + ({6'd0, lane} << 5) + {6'd0, xoff}; end
+	begin obj_x = `GAME_X0 + ({6'd0, lane} << 5) + {6'd0, xoff}; end
 endfunction
 
 always @(*) begin
@@ -100,8 +94,8 @@ always @(*) begin
 
 		// AABB hit test
 		if (!obj_hit && obj_valid_bus[obj_i] &&
-			pixel_x >= scan_obj_x && pixel_x < scan_obj_x + OBJ_W &&
-			pixel_y >= scan_obj_ypos && pixel_y < scan_obj_ypos + OBJ_H) begin
+			pixel_x >= scan_obj_x && pixel_x < scan_obj_x + `OBJ_W &&
+			pixel_y >= scan_obj_ypos && pixel_y < scan_obj_ypos + `OBJ_H) begin
 			scan_local_x = pixel_x - scan_obj_x;
 			scan_local_y = pixel_y - scan_obj_ypos;
 			obj_hit = 1;
@@ -134,12 +128,12 @@ wire [15:0] obj_rgb565 =
 	obj_type_d == 5 ? obj_time_rgb565 :
 						 obj_charge_rgb565;
 
-wire hit_player = pixel_x >= player_x && pixel_x < player_x + PLAYER_W &&
-				  pixel_y >= PLAYER_Y && pixel_y < PLAYER_Y + PLAYER_H;
+wire hit_player = pixel_x >= player_x && pixel_x < player_x + `PLAYER_W &&
+				  pixel_y >= `PLAYER_Y && pixel_y < `PLAYER_Y + `PLAYER_H;
 
 // 32x32 -> 64x64 scaling by replicating pixels
 wire [9:0] player_rel_x = pixel_x - player_x;
-wire [9:0] player_rel_y = pixel_y - PLAYER_Y;
+wire [9:0] player_rel_y = pixel_y - `PLAYER_Y;
 wire [PLAYER_SRC_BITS-1:0] player_src_x = player_rel_x[5:1];
 wire [PLAYER_SRC_BITS-1:0] player_src_y = player_rel_y[5:1];
 wire [PLAYER_SRC_BITS-1:0] player_addr_x = player_dir ? player_src_x : (5'd31 - player_src_x);

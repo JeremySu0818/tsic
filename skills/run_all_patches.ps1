@@ -40,6 +40,13 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+$BaseUntrackedArgs = @("ls-files", "--others", "--exclude-standard", "--", ".", ":(exclude)skills/patches", ":(exclude)skills/fs", ":(exclude)bin", ":(exclude)fs")
+$BaseUntrackedFiles = @(& git @BaseUntrackedArgs)
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Failed to read base untracked files."
+    exit 1
+}
+
 function Get-ProjectFile {
     param([string]$Root)
 
@@ -121,6 +128,22 @@ foreach ($Patch in $PatchFiles) {
                 if ($LASTEXITCODE -ne 0) {
                     throw "base working tree diff apply failed"
                 }
+            }
+
+            foreach ($RelativeFile in $BaseUntrackedFiles) {
+                $SourcePath = Join-Path $RepoRoot $RelativeFile
+                $TargetPath = Join-Path $WorktreePath $RelativeFile
+                $TargetDir = Split-Path -Parent $TargetPath
+
+                if (-not (Test-Path $SourcePath)) {
+                    continue
+                }
+
+                if ($TargetDir -and -not (Test-Path $TargetDir)) {
+                    New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
+                }
+
+                Copy-Item -LiteralPath $SourcePath -Destination $TargetPath -Force
             }
 
             git apply --ignore-whitespace "$($Patch.FullName)"

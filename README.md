@@ -53,6 +53,7 @@ hdmi_coin/
     |-- hdmi_coin.cst
     |-- hdmi_coin.sdc
     |-- common/
+    |   |-- bin2bcd_3digits.v
     |   |-- debounce.v
     |   |-- ff_sync.v
     |   |-- fifo.v
@@ -60,6 +61,7 @@ hdmi_coin/
     |   |-- reset_sync.v
     |   `-- rom.v
     |-- game/
+    |   |-- game_defs.vh
     |   |-- game_core.v
     |   |-- game_ctrl.v
     |   |-- skill_slot.v
@@ -68,6 +70,7 @@ hdmi_coin/
     |-- overlay/
     |   |-- bg_layer.v
     |   |-- obj_layer.v
+    |   |-- res_overlay.v
     |   `-- ui_layer.v
     |-- hdmi/
     |   |-- svo_defines.vh
@@ -79,8 +82,8 @@ hdmi_coin/
     |   `-- gowin_pllvr.v
     `-- assets/
         |-- background.mem
-        |-- objects/
-        `-- player/
+        |-- obj_*.mem
+        `-- player_*.mem
 ```
 
 ## Video Spec
@@ -150,11 +153,12 @@ The state register stays inside `game_ctrl`; render layers only receive the simp
 
 ### Timer and Score
 
-- `timer` starts from `TIMER_START`, currently 120 seconds.
-- `timer` decreases once every 60 frame ticks.
+- `timer` starts from `TIMER_START`.
+- `FPS` defines how many `frame_tick` pulses make one second; `timer` decreases once every `FPS` frame ticks.
 - When `timer` reaches 0, the game enters game over.
-- `score` is displayed as 4 digits.
-- `high_score` updates only when the game enters game over.
+- `timer` and `score` are stored as binary registers and converted to packed 3-digit BCD for the UI.
+- `high_score_bcd` starts from 0 and is stored as packed BCD for display and comparison.
+- `high_score_bcd` updates only when the game enters game over.
 - `+time` objects add `TIME_BONUS`, currently 3 seconds.
 - `charge` objects add 1 skill charge, up to `SKILL_CHARGE_MAX`, currently 5.
 - In the base branch, `btn_skill` is wired but does not trigger a gameplay effect.
@@ -174,7 +178,7 @@ type 5: +time
 type 6: charge
 ```
 
-Negative score clamps at 0.
+Score clamps to the displayable BCD range, 0 to 999.
 
 ### Player
 
@@ -292,8 +296,8 @@ Layout:
 
 ```text
 left    timer, 3 digits
-center  score, 4 digits
-right   high score, 4 digits
+center  score, 3 digits
+right   high score, 3 digits
 ```
 
 Current UI behavior:
@@ -304,16 +308,34 @@ Current UI behavior:
 - skill charge bar at the bottom, 5 segments
 - skill countdown timer near the charge bar, 2 small digits
 - digits are logic-generated seven-segment shapes
+- timer, score, and high score receive packed BCD digits from `game_ctrl`
 - UI receives `game_over`; it does not depend on the internal state encoding
+
+### `res_overlay`
+
+Receives the UI stream and overlays the game-over result panel.
+
+Content:
+
+```text
+TIME UP
+SCORE 123
+BEST  456
+```
+
+It is a combinational overlay layer with no frame counter. Define `RES_OVERLAY_DIM`
+at compile time to dim pixels outside the panel; leave it undefined for no dimming.
 
 ## Common Modules
 
 - `reset_sync`: reset synchronizer used by `top`
 - `ff_sync`: two-flop synchronizer for external asynchronous signals
 - `debounce`: counter-based debounce for synchronized active-low buttons
+- `bin2bcd_3digits`: parameterized double-dabble converter for score and timer BCD values
 - `rom`: synchronous ROM wrapper for RGB565 assets
 - `fifo`: small synchronous FIFO used by `spawn_queue`
 - `lfsr32`: pseudo-random generator for object spawn logic; `spawn_queue` uses one LFSR for position and one for type
+- `game_defs.vh`: shared gameplay geometry constants used by collision and rendering paths
 
 ## Skill Base
 
@@ -345,12 +367,13 @@ charge clear trigger
 ```text
 hit_player_l / hit_player_r / hit_player_t / hit_player_b
 score_delta
+score_delta_eff
 player_speed
 spawn_period
 spawn_postprocess
 ```
 
-The base branch uses these signals directly. Skill patches may introduce local effective signals such as `score_delta_eff`, `player_speed_eff`, or `spawn_period_eff` inside the patch itself.
+The base branch uses these signals directly. Skill patches may override effective signals such as `score_delta_eff`, `player_speed_eff`, or `spawn_period_eff` inside the patch itself.
 
 Skill specs are stored in `skills/`, one file per skill. Apply-ready patch files are stored in `skills/patches/`.
 Each patch only enables the common slot and changes the skill-specific effect.
@@ -478,6 +501,7 @@ Implemented:
 - player sprite rendering
 - UI layer with timer, score, high score, and button indicators
 - game controller with timer, movement, spawn queue, falling objects, collision, score, and high score update
+- cascaded BCD digit counters for UI timer, score, and high score outputs
 - skill base hooks with common `skill_slot` lifecycle and pass-through `spawn_postprocess`
 - button synchronization and debounce
 - PNG to RGB565 MEM conversion script

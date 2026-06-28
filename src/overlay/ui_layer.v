@@ -8,9 +8,9 @@ module ui_layer #(
 	input clk,
 	input resetn,
 
-	input [7:0] timer,
-	input [9:0] score,
-	input [9:0] high_score,
+	input [11:0] timer_bcd,
+	input [11:0] score_bcd,
+	input [11:0] high_score_bcd,
 	input [2:0] skill_charge,
 	input [7:0] skill_timer,
 	input game_over,
@@ -69,17 +69,17 @@ wire fire = in_axis_tvalid && in_axis_tready;
 wire [`SVO_XYBITS-1:0] pixel_x = in_axis_tuser[0] ? 0 : hcursor;
 wire [`SVO_XYBITS-1:0] pixel_y = in_axis_tuser[0] ? 0 : vcursor;
 
-wire [3:0] timer_d2 = timer / 8'd100;
-wire [3:0] timer_d1 = (timer / 8'd10) % 8'd10;
-wire [3:0] timer_d0 = timer % 8'd10;
+wire [3:0] timer_d2 = timer_bcd[11:8];
+wire [3:0] timer_d1 = timer_bcd[7:4];
+wire [3:0] timer_d0 = timer_bcd[3:0];
 
-wire [3:0] score_d2 = score / 10'd100;
-wire [3:0] score_d1 = (score / 10'd10) % 10'd10;
-wire [3:0] score_d0 = score % 10'd10;
+wire [3:0] score_d2 = score_bcd[11:8];
+wire [3:0] score_d1 = score_bcd[7:4];
+wire [3:0] score_d0 = score_bcd[3:0];
 
-wire [3:0] high_score_d2 = high_score / 10'd100;
-wire [3:0] high_score_d1 = (high_score / 10'd10) % 10'd10;
-wire [3:0] high_score_d0 = high_score % 10'd10;
+wire [3:0] high_score_d2 = high_score_bcd[11:8];
+wire [3:0] high_score_d1 = high_score_bcd[7:4];
+wire [3:0] high_score_d0 = high_score_bcd[3:0];
 wire skill_timer_ge_10 = skill_timer >= 10;
 wire [3:0] skill_timer_d1 = skill_timer_ge_10 ? 1 : 0;
 wire [3:0] skill_timer_d0 = skill_timer_ge_10 ? skill_timer - 10 : skill_timer[3:0];
@@ -238,6 +238,29 @@ function small_number_pixel;
 			if (x >= digit_left && x < digit_left + SMALL_DIGIT_W)
 				small_number_pixel = small_digit_on(d0, x - digit_left, y - SKILL_TIME_Y);
 		end
+end
+endfunction
+
+function charge_bar_pixel;
+	input [`SVO_XYBITS-1:0] x;
+	input [`SVO_XYBITS-1:0] y;
+	input [2:0] charge;
+
+	integer j;
+	reg [`SVO_XYBITS-1:0] bar_x;
+	begin
+		charge_bar_pixel = 0;
+
+		if (y >= CHARGE_Y && y < CHARGE_Y + CHARGE_H) begin
+			for (j = 0; j < 5; j = j + 1) begin
+				bar_x = CHARGE_X + j * (CHARGE_W + CHARGE_GAP);
+
+				if (charge > j &&
+					x >= bar_x && x < bar_x + CHARGE_W) begin
+					charge_bar_pixel = 1;
+				end
+			end
+		end
 	end
 endfunction
 
@@ -248,15 +271,7 @@ wire skill_timer_on = SKILL_ENABLE && (skill_timer != 0);
 wire skill_timer_pixel = skill_timer_on && small_number_pixel(pixel_x, pixel_y, SKILL_TIME_X, skill_timer_d1, skill_timer_d0);
 wire score_on = !game_over || blink_on;
 wire in_ui = pixel_y >= UI_TOP;
-wire charge_y = pixel_y >= CHARGE_Y && pixel_y < CHARGE_Y + CHARGE_H;
-wire charge_pixel =
-	SKILL_ENABLE && charge_y && (
-		(skill_charge > 0 && pixel_x >= CHARGE_X && pixel_x < CHARGE_X + CHARGE_W) ||
-		(skill_charge > 1 && pixel_x >= CHARGE_X + 1 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 1 * (CHARGE_W + CHARGE_GAP) + CHARGE_W) ||
-		(skill_charge > 2 && pixel_x >= CHARGE_X + 2 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 2 * (CHARGE_W + CHARGE_GAP) + CHARGE_W) ||
-		(skill_charge > 3 && pixel_x >= CHARGE_X + 3 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 3 * (CHARGE_W + CHARGE_GAP) + CHARGE_W) ||
-		(skill_charge > 4 && pixel_x >= CHARGE_X + 4 * (CHARGE_W + CHARGE_GAP) && pixel_x < CHARGE_X + 4 * (CHARGE_W + CHARGE_GAP) + CHARGE_W)
-	);
+wire charge_pixel = SKILL_ENABLE && charge_bar_pixel(pixel_x, pixel_y, skill_charge);
 wire left_indicator = btn_left && pixel_y >= UI_TOP + 8 && pixel_y < UI_TOP + 56 &&
 						pixel_x >= 4 && pixel_x < 20;
 wire right_indicator = btn_right && pixel_y >= UI_TOP + 8 && pixel_y < UI_TOP + 56 &&

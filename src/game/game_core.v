@@ -41,6 +41,11 @@ wire obj_tready;
 wire [SVO_BITS_PER_PIXEL-1:0] obj_tdata;
 wire [0:0] obj_tuser;
 
+wire ui_tvalid;
+wire ui_tready;
+wire [SVO_BITS_PER_PIXEL-1:0] ui_tdata;
+wire [0:0] ui_tuser;
+
 wire frame_tick;
 wire [9:0] player_x;
 wire player_dir;
@@ -51,11 +56,12 @@ wire [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_ypos_bus;
 wire [MAX_OBJ*OBJ_TYPE_BITS-1:0] obj_type_bus;
 wire [7:0] timer;
 wire [9:0] score;
-wire [9:0] high_score;
+wire [11:0] timer_bcd;
+wire [11:0] score_bcd;
+wire [11:0] high_score_bcd;
 wire [2:0] skill_charge;
 wire [7:0] skill_timer;
 wire skill_on;
-wire obj_ready;
 wire game_over;
 
 // Frame start signal
@@ -79,8 +85,6 @@ game_ctrl #(
 	.btn_start(btn_start),
 	.btn_skill(btn_skill),
 
-	.obj_ready(obj_ready),
-
 	.player_x(player_x),
 	.player_dir(player_dir),
 
@@ -92,7 +96,9 @@ game_ctrl #(
 
 	.timer(timer),
 	.score(score),
-	.high_score(high_score),
+	.timer_bcd(timer_bcd),
+	.score_bcd(score_bcd),
+	.high_score_bcd(high_score_bcd),
 	.skill_charge(skill_charge),
 	.skill_timer(skill_timer),
 	.skill_on(skill_on),
@@ -152,9 +158,9 @@ ui_layer #(
 	.clk(clk),
 	.resetn(resetn),
 
-	.timer(timer),
-	.score(score),
-	.high_score(high_score),
+	.timer_bcd(timer_bcd),
+	.score_bcd(score_bcd),
+	.high_score_bcd(high_score_bcd),
 	.skill_charge(skill_charge),
 	.skill_timer(skill_timer),
 	.game_over(game_over),
@@ -165,6 +171,27 @@ ui_layer #(
 	.in_axis_tready(obj_tready),
 	.in_axis_tdata(obj_tdata),
 	.in_axis_tuser(obj_tuser),
+
+	.out_axis_tvalid(ui_tvalid),
+	.out_axis_tready(ui_tready),
+	.out_axis_tdata(ui_tdata),
+	.out_axis_tuser(ui_tuser)
+);
+
+res_overlay #(
+	`SVO_PASS_PARAMS
+) u_res_overlay (
+	.clk(clk),
+	.resetn(resetn),
+
+	.show(game_over),
+	.score_bcd(score_bcd),
+	.high_score_bcd(high_score_bcd),
+
+	.in_axis_tvalid(ui_tvalid),
+	.in_axis_tready(ui_tready),
+	.in_axis_tdata(ui_tdata),
+	.in_axis_tuser(ui_tuser),
 
 	.out_axis_tvalid(out_axis_tvalid),
 	.out_axis_tready(out_axis_tready),

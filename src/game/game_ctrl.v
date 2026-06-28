@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "game/game_defs.vh"
 
 module game_ctrl #(
 	parameter MAX_OBJ = 16,
@@ -8,17 +9,15 @@ module game_ctrl #(
 	parameter OBJ_Y_BITS = 10,
 	parameter FALL_SPEED = 2,
 	parameter SPAWN_PERIOD_FRAMES = 24,
-	parameter PLAYER_WIDTH = 64,
-	parameter PLAYER_HEIGHT = 64,
 	parameter PLAYER_HIT_TOP_PAD = 16,
 	parameter PLAYER_START_X = 288,
 	parameter PLAYER_SPEED_START = 8,
 	parameter TIMER_START = 60,
 	parameter TIME_BONUS = 3,
+	parameter FPS = 60,
 	parameter SKILL_CHARGE_MAX = 5,
 	parameter SKILL_ENABLE = 0,
-	parameter SKILL_DURATION = 0,
-	parameter HIGH_SCORE_START = 0
+	parameter SKILL_DURATION = 0
 )(
 	input clk,
 	input resetn,
@@ -28,8 +27,6 @@ module game_ctrl #(
 	input btn_right,
 	input btn_start,
 	input btn_skill,
-
-	output obj_ready,
 
 	output reg [9:0] player_x,
 	output reg [5:0] player_speed,
@@ -43,7 +40,9 @@ module game_ctrl #(
 
 	output reg [7:0] timer,
 	output reg [9:0] score,
-	output reg [9:0] high_score,
+	output [11:0] timer_bcd,
+	output [11:0] score_bcd,
+	output reg [11:0] high_score_bcd,
 	output reg [2:0] skill_charge,
 	output [7:0] skill_timer,
 	output skill_on,
@@ -61,13 +60,8 @@ localparam TYPE_TIME = 5;
 localparam TYPE_CHARGE = 6;
 
 localparam [9:0] SCREEN_W = 640;
-localparam [9:0] GAME_X0 = 64;
-localparam [9:0] UI_TOP = 416;
-localparam [9:0] OBJ_W = 32;
-localparam [9:0] OBJ_H = 32;
-localparam [9:0] OBJ_GROUND_Y = UI_TOP - OBJ_H;
-localparam [9:0] PLAYER_Y = 352;
-localparam [9:0] PLAYER_MAX_X = SCREEN_W - PLAYER_WIDTH;
+localparam [9:0] OBJ_GROUND_Y = `UI_TOP - `OBJ_H;
+localparam [9:0] PLAYER_MAX_X = SCREEN_W - `PLAYER_W;
 
 reg [LANE_BITS    -1:0] obj_lane [0:MAX_OBJ-1];
 reg [XOFF_BITS    -1:0] obj_xoff [0:MAX_OBJ-1];
@@ -76,15 +70,14 @@ reg [OBJ_Y_BITS   -1:0] obj_ypos [0:MAX_OBJ-1];
 reg [4:0] obj_count;
 reg [1:0] state;
 
-reg [5:0] sec_cnt;
+reg [7:0] frame_cnt;
 reg [7:0] spawn_cnt;
 reg btn_start_q;
 reg [7:0] spawn_period;
 
 wire btn_start_rise = btn_start && !btn_start_q;
-wire pause;
 wire skill_start;
-wire skill_btn_active = btn_skill && state == S_PLAY && !pause;
+wire skill_btn_active = btn_skill && state == S_PLAY;
 wire can_left = player_x > player_speed;
 wire can_right = player_x + player_speed < PLAYER_MAX_X;
 
@@ -92,12 +85,13 @@ wire [10:0] spawn_data;
 wire spawn_fifo_empty;
 wire obj_has_room = obj_count < MAX_OBJ;
 wire remove_valid;
-wire spawn_pop = frame_tick && state == S_PLAY && !pause &&
+wire spawn_pop = frame_tick && state == S_PLAY &&
 				  spawn_cnt == 0 && !spawn_fifo_empty &&
 				  (obj_has_room || remove_valid);
+wire game_step = frame_tick && state == S_PLAY;
+wire timer_tick = frame_cnt == FPS - 1;
+wire sec_tick = game_step && timer_tick;
 
-assign pause = 0;
-assign obj_ready = obj_has_room;
 assign game_over = state == S_OVER;
 
 skill_slot #(
@@ -107,7 +101,7 @@ skill_slot #(
 ) u_skill_slot (
 	.clk(clk),
 	.resetn(resetn),
-	.tick(frame_tick && state == S_PLAY && !pause),
+	.sec_tick(sec_tick),
 	.restart(btn_start_rise),
 	.btn_skill(skill_btn_active),
 	.skill_charge(skill_charge),
@@ -119,7 +113,7 @@ skill_slot #(
 spawn_queue u_spawn_queue (
 	.clk(clk),
 	.resetn(resetn),
-	.enable(state == S_PLAY && !pause),
+	.enable(state == S_PLAY),
 	.pop(spawn_pop),
 	.spawn_data(spawn_data),
 	.empty(spawn_fifo_empty)
@@ -153,14 +147,14 @@ reg hit_valid;
 reg [4:0] hit_idx;
 reg [9:0] hit_obj_x;
 wire [10:0] hit_player_l = player_x;
-wire [10:0] hit_player_r = player_x + PLAYER_WIDTH;
-wire [10:0] hit_player_t = PLAYER_Y + PLAYER_HIT_TOP_PAD;
-wire [10:0] hit_player_b = PLAYER_Y + PLAYER_HEIGHT;
+wire [10:0] hit_player_r = player_x + `PLAYER_W;
+wire [10:0] hit_player_t = `PLAYER_Y + PLAYER_HIT_TOP_PAD;
+wire [10:0] hit_player_b = `PLAYER_Y + `PLAYER_H;
 
 function [9:0] obj_x;
 	input [LANE_BITS-1:0] lane;
 	input [XOFF_BITS-1:0] xoff;
-	begin obj_x = GAME_X0 + ({6'd0, lane} << 5) + {6'd0, xoff}; end
+	begin obj_x = `GAME_X0 + ({6'd0, lane} << 5) + {6'd0, xoff}; end
 endfunction
 
 always @(*) begin
@@ -171,9 +165,9 @@ always @(*) begin
 	for (hit_i = 0; hit_i < MAX_OBJ; hit_i = hit_i + 1) begin
 		hit_obj_x = obj_x(obj_lane[hit_i], obj_xoff[hit_i]);
 		if (!hit_valid && hit_i < obj_count &&
-			hit_player_l < hit_obj_x + OBJ_W &&
+			hit_player_l < hit_obj_x + `OBJ_W &&
 			hit_player_r > hit_obj_x &&
-			hit_player_t < obj_ypos[hit_i] + OBJ_H &&
+			hit_player_t < obj_ypos[hit_i] + `OBJ_H &&
 			hit_player_b > obj_ypos[hit_i]) begin
 			hit_valid = 1;
 			hit_idx = hit_i[4:0];
@@ -189,14 +183,15 @@ reg [9:0] next_score;
 reg [7:0] next_timer;
 reg [2:0] next_charge;
 reg signed [5:0] score_delta;
+reg signed [6:0] score_delta_eff;
 reg signed [10:0] score_sum;
 wire [9:0] final_score = hit_valid ? next_score : score;
-
 always @(*) begin
 	next_score = score;
 	next_timer = timer;
 	next_charge = skill_charge;
 	score_delta = 0;
+	score_delta_eff = 0;
 	score_sum = score;
 
 	if (hit_valid) begin
@@ -216,13 +211,33 @@ always @(*) begin
 			end
 		endcase
 
-		score_sum = $signed({1'b0, score}) + score_delta;
+		score_delta_eff = score_delta;
+		score_sum = $signed({1'b0, score}) + score_delta_eff;
 		if (score_sum < 0)
 			next_score = 0;
 		else
 			next_score = score_sum[9:0];
 	end
 end
+
+wire game_ending = sec_tick && next_timer <= 1;
+wire new_high_score = score_bcd > high_score_bcd;
+
+wire high_score_will_update = game_ending && new_high_score;
+
+bin2bcd_3digits #(
+	.BIN_BITS(10)
+) u_score_bcd (
+	.bin(final_score),
+	.bcd(score_bcd)
+);
+
+bin2bcd_3digits #(
+	.BIN_BITS(8)
+) u_timer_bcd (
+	.bin(timer),
+	.bcd(timer_bcd)
+);
 
 integer pack_i;
 
@@ -255,10 +270,10 @@ always @(posedge clk) begin
 		obj_count <= 0;
 		timer <= TIMER_START;
 		score <= 0;
-		high_score <= HIGH_SCORE_START;
+		high_score_bcd <= 12'h000;
 		skill_charge <= 0;
 		state <= S_PLAY;
-		sec_cnt <= 0;
+		frame_cnt <= 0;
 		spawn_cnt <= SPAWN_PERIOD_FRAMES;
 		btn_start_q <= 0;
 
@@ -281,7 +296,7 @@ always @(posedge clk) begin
 			score <= 0;
 			skill_charge <= 0;
 			state <= S_PLAY;
-			sec_cnt <= 0;
+			frame_cnt <= 0;
 			spawn_cnt <= SPAWN_PERIOD_FRAMES;
 
 			for (i = 0; i < MAX_OBJ; i = i + 1) begin
@@ -290,8 +305,8 @@ always @(posedge clk) begin
 				obj_ypos[i] <= 0;
 				obj_type[i] <= 0;
 			end
-		end else if (frame_tick) begin
-			if (state == S_PLAY && !pause) begin
+		end else begin
+			if (frame_tick && state == S_PLAY) begin
 
 				// Direction control
 				if (btn_left && !btn_right) begin
@@ -359,19 +374,20 @@ always @(posedge clk) begin
 				else if (spawn_cnt != 0)
 					spawn_cnt <= spawn_cnt - 1;
 
-				if (sec_cnt == 59) begin
-					sec_cnt <= 0;
+				if (timer_tick) begin
+					frame_cnt <= 0;
 
 					if (next_timer > 1) begin
 						timer <= next_timer - 1;
 					end else begin
 						timer <= 0;
 						state <= S_OVER;
-						if (final_score > high_score)
-							high_score <= final_score;
+						if (high_score_will_update) begin
+							high_score_bcd <= score_bcd;
+						end
 					end
 				end else begin
-					sec_cnt <= sec_cnt + 1;
+					frame_cnt <= frame_cnt + 1;
 				end
 			end
 		end

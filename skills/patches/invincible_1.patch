@@ -13,30 +13,15 @@
     input clk,
 --- a/src/game/game_ctrl.v
 +++ b/src/game/game_ctrl.v
-@@ -187,5 +187,6 @@
- reg [7:0] next_timer;
- reg [2:0] next_charge;
- reg signed [5:0] score_delta;
-+reg signed [5:0] score_delta_eff;
- reg signed [10:0] score_sum;
- wire [9:0] final_score = hit_valid ? next_score : score;
-@@ -196,4 +197,5 @@
-    next_timer = timer;
-    next_charge = skill_charge;
-    score_delta = 0;
-+    score_delta_eff = 0;
-    score_sum = score;
-@@ -214,6 +216,11 @@
+@@ -222,7 +222,9 @@
             end
         endcase
 -
--        score_sum = $signed({1'b0, score}) + score_delta;
-+
+-        score_delta_eff = score_delta;
 +        if (skill_on && score_delta < 0)
 +            score_delta_eff = 0;
 +        else
 +            score_delta_eff = score_delta;
-+
-+        score_sum = $signed({1'b0, score}) + score_delta_eff;
+        score_sum = $signed({1'b0, score}) + score_delta_eff;
         if (score_sum < 0)
             next_score = 0;

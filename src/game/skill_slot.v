@@ -7,7 +7,7 @@ module skill_slot #(
 )(
 	input clk,
 	input resetn,
-	input tick,
+	input sec_tick,
 	input restart,
 	input btn_skill,
 	input [2:0] skill_charge,
@@ -16,7 +16,6 @@ module skill_slot #(
 	output skill_on,
 	output skill_start
 );
-reg [5:0] sec_cnt;
 reg btn_q;
 
 assign skill_on = skill_timer != 0;
@@ -26,25 +25,17 @@ assign skill_start = ENABLE && btn_skill && !btn_q &&
 always @(posedge clk) begin
 	if (!resetn) begin
 		skill_timer <= 0;
-		sec_cnt <= 0;
 		btn_q <= 0;
 	end else if (restart) begin
 		skill_timer <= 0;
-		sec_cnt <= 0;
 		btn_q <= 0;
 	end else begin
 		btn_q <= btn_skill;
 
 		if (skill_start) begin
 			skill_timer <= DURATION;
-			sec_cnt <= 0;
-		end else if (tick && skill_timer != 0) begin
-			if (sec_cnt == 59) begin
-				sec_cnt <= 0;
-				skill_timer <= skill_timer - 1;
-			end else begin
-				sec_cnt <= sec_cnt + 1;
-			end
+		end else if (sec_tick && skill_timer != 0) begin
+			skill_timer <= skill_timer - 1;
 		end
 	end
 end
