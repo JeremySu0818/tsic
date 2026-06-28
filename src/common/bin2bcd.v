@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module bin2bcd_3digits #(
+module bin2bcd #(
 	parameter BIN_BITS = 10
 ) (
 	input [BIN_BITS-1:0] bin,

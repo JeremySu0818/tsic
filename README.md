@@ -53,7 +53,7 @@ hdmi_coin/
     |-- hdmi_coin.cst
     |-- hdmi_coin.sdc
     |-- common/
-    |   |-- bin2bcd_3digits.v
+    |   |-- bin2bcd.v
     |   |-- debounce.v
     |   |-- ff_sync.v
     |   |-- fifo.v
@@ -331,7 +331,7 @@ at compile time to dim pixels outside the panel; leave it undefined for no dimmi
 - `reset_sync`: reset synchronizer used by `top`
 - `ff_sync`: two-flop synchronizer for external asynchronous signals
 - `debounce`: counter-based debounce for synchronized active-low buttons
-- `bin2bcd_3digits`: parameterized double-dabble converter for score and timer BCD values
+- `bin2bcd`: parameterized double-dabble converter for score and timer BCD values
 - `rom`: synchronous ROM wrapper for RGB565 assets
 - `fifo`: small synchronous FIFO used by `spawn_queue`
 - `lfsr32`: pseudo-random generator for object spawn logic; `spawn_queue` uses one LFSR for position and one for type

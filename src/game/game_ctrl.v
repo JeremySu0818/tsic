@@ -225,14 +225,14 @@ wire new_high_score = score_bcd > high_score_bcd;
 
 wire high_score_will_update = game_ending && new_high_score;
 
-bin2bcd_3digits #(
+bin2bcd #(
 	.BIN_BITS(10)
 ) u_score_bcd (
 	.bin(final_score),
 	.bcd(score_bcd)
 );
 
-bin2bcd_3digits #(
+bin2bcd #(
 	.BIN_BITS(8)
 ) u_timer_bcd (
 	.bin(timer),
