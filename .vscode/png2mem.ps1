@@ -3,9 +3,11 @@ param(
     [string]$OutputDir = "src\assets",
     # basenames stored as RGB323 (8-bit) instead of RGB565 (16-bit)
     [string[]]$Sprites8bit = @("player_right_32", "player_skill_32"),
-    # basenames whose source art is scaled (aspect-preserved, transparent pad)
-    # to fit an N x N sprite box before conversion. Lets artists drop full-res art.
-    [hashtable]$FitSize = @{ "player_right_32" = 32; "player_skill_32" = 32 }
+    # Target sprite box size (N x N) is taken from the trailing "_<N>" in the
+    # base name (e.g. obj_plus1_16 -> 16, player_right_32 -> 32); any-size source
+    # art is scaled to fit (aspect-preserved, transparent pad). This map is an
+    # override for bases that have no size suffix (e.g. background).
+    [hashtable]$FitSize = @{ "background" = 32 }
 )
 
 Add-Type -AssemblyName System.Drawing
@@ -56,17 +58,23 @@ function Fit-Bitmap {
     return $dst
 }
 
-# Load a sprite bitmap for the given base, applying Fit-Bitmap if configured.
+# Target N x N box for a base: explicit override, else trailing "_<N>", else 0 (none).
+function Get-TargetSize {
+    param([string]$base)
+    if ($FitSize.ContainsKey($base)) { return [int]$FitSize[$base] }
+    if ($base -match '_(\d+)$') { return [int]$Matches[1] }
+    return 0
+}
+
+# Load a sprite bitmap for the given base, scaling to fit its target box if any.
 function Load-Sprite {
     param([string]$path, [string]$base)
     $bmp = [System.Drawing.Bitmap]::new($path)
-    if ($FitSize.ContainsKey($base)) {
-        $n = [int]$FitSize[$base]
-        if ($bmp.Width -ne $n -or $bmp.Height -ne $n) {
-            $fitted = Fit-Bitmap $bmp $n
-            $bmp.Dispose()
-            return $fitted
-        }
+    $n = Get-TargetSize $base
+    if ($n -gt 0 -and ($bmp.Width -ne $n -or $bmp.Height -ne $n)) {
+        $fitted = Fit-Bitmap $bmp $n
+        $bmp.Dispose()
+        return $fitted
     }
     return $bmp
 }
