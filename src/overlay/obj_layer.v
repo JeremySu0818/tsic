@@ -39,7 +39,7 @@ module obj_layer #(
 `SVO_DECLS
 
 localparam PLAYER_SRC_BITS = 5;
-localparam PLAYER_SRC_ADDR_WIDTH = 10;
+localparam PLAYER_SRC_ADDR_WIDTH = 11;         // {frame(1), src_y(5), src_x(5)} -> 2-frame walk sheet
 
 localparam OBJ_ADDR_WIDTH = 8;
 localparam [15:0] TRANSPARENT_VAL = 16'h0000;
@@ -137,11 +137,13 @@ wire [9:0] player_rel_y = pixel_y - `PLAYER_Y;
 wire [PLAYER_SRC_BITS-1:0] player_src_x = player_rel_x[5:1];
 wire [PLAYER_SRC_BITS-1:0] player_src_y = player_rel_y[5:1];
 wire [PLAYER_SRC_BITS-1:0] player_addr_x = player_dir ? player_src_x : (5'd31 - player_src_x);
-wire [PLAYER_SRC_ADDR_WIDTH-1:0] player_addr = {player_src_y, player_addr_x};
+// walk animation: alternate between 2 frames, flipping every 16px of travel
+wire player_frame = player_x[6];
+wire [PLAYER_SRC_ADDR_WIDTH-1:0] player_addr = {player_frame, player_src_y, player_addr_x};
 
-wire [15:0] player_normal_rgb565;
-wire [15:0] player_skill_rgb565;
-wire [15:0] player_rgb565 = skill_on_d ? player_skill_rgb565 : player_normal_rgb565;
+wire [7:0] player_normal_rgb;
+wire [7:0] player_skill_rgb;
+wire [7:0] player_rgb = skill_on_d ? player_skill_rgb : player_normal_rgb;
 
 function [23:0] rgb565_to_bgr888;
 	input [15:0] rgb565;
@@ -156,6 +158,19 @@ function [23:0] rgb565_to_bgr888;
 	end
 endfunction
 
+function [23:0] rgb323_to_bgr888;
+	input [7:0] c;                 // [7:5]=R3 [4:3]=G2 [2:0]=B3
+	reg [7:0] r;
+	reg [7:0] g;
+	reg [7:0] b;
+	begin
+		r = {c[7:5], c[7:5], c[7:6]};
+		g = {c[4:3], c[4:3], c[4:3], c[4:3]};
+		b = {c[2:0], c[2:0], c[2:1]};
+		rgb323_to_bgr888 = {b, g, r};
+	end
+endfunction
+
 // If there is an object then just show it, otherwise show the background pixel
 wire [SVO_BITS_PER_PIXEL-1:0] pxl_after_obj =
 	obj_hit_d && obj_rgb565 != TRANSPARENT_VAL ?
@@ -163,8 +178,8 @@ wire [SVO_BITS_PER_PIXEL-1:0] pxl_after_obj =
 
 // If the player sprite is hit then show it, otherwise show whatever comes from obj layer
 wire [SVO_BITS_PER_PIXEL-1:0] pxl_after_player =
-	hit_player_d && player_rgb565 != TRANSPARENT_VAL ?
-	rgb565_to_bgr888(player_rgb565) : pxl_after_obj;
+	hit_player_d && player_rgb != 8'h00 ?
+	rgb323_to_bgr888(player_rgb) : pxl_after_obj;
 
 assign in_axis_tready  = out_axis_tready;
 assign out_axis_tvalid = tvalid_d;
@@ -291,25 +306,25 @@ rom #(
 );
 
 rom #(
-	.DATA_WIDTH(16),
+	.DATA_WIDTH(8),
 	.ADDR_WIDTH(PLAYER_SRC_ADDR_WIDTH),
-	.DEPTH(1024),
+	.DEPTH(2048),
 	.INIT_FILE("src/assets/player_right_32.mem")
 ) u_player_right_rom (
 	.clk(clk),
 	.addr(player_addr),
-	.data(player_normal_rgb565)
+	.data(player_normal_rgb)
 );
 
 rom #(
-	.DATA_WIDTH(16),
+	.DATA_WIDTH(8),
 	.ADDR_WIDTH(PLAYER_SRC_ADDR_WIDTH),
-	.DEPTH(1024),
+	.DEPTH(2048),
 	.INIT_FILE("src/assets/player_skill_32.mem")
 ) u_player_skill_rom (
 	.clk(clk),
 	.addr(player_addr),
-	.data(player_skill_rgb565)
+	.data(player_skill_rgb)
 );
 
 endmodule

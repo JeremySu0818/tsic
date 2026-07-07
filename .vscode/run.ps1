@@ -86,7 +86,7 @@ if (-not $FS_PATH) {
 
 Write-Host "Uploading bitstream: $FS_PATH"
 
-$PROGRAMMER_OUTPUT = @(& $PROGRAMMER --device $DEVICE_NAME --run 2 --fsFile $FS_PATH | ForEach-Object {
+$PROGRAMMER_OUTPUT = @(& $PROGRAMMER --device $DEVICE_NAME --run 5 --fsFile $FS_PATH | ForEach-Object {
     $LINE = $_.ToString()
     Write-Host $LINE
     $LINE
@@ -94,10 +94,12 @@ $PROGRAMMER_OUTPUT = @(& $PROGRAMMER --device $DEVICE_NAME --run 2 --fsFile $FS_
 $PROGRAMMER_EXIT_CODE = $LASTEXITCODE
 
 $HAS_PROGRAMMER_ERROR = $PROGRAMMER_OUTPUT | Select-String -Pattern '\bERROR\b|\bError\b|\bFailed\b|\bfailed\b' -Quiet
-$HAS_PROGRAMMING = $PROGRAMMER_OUTPUT | Select-String -Pattern 'Programming\.\.\.' -Quiet
+$HAS_100 = $PROGRAMMER_OUTPUT | Select-String -Pattern '100%' -Quiet
 $HAS_FINISHED = $PROGRAMMER_OUTPUT | Select-String -Pattern '\bFinished\.' -Quiet
 
-if ($PROGRAMMER_EXIT_CODE -ne 0 -or $HAS_PROGRAMMER_ERROR -or -not ($HAS_PROGRAMMING -and $HAS_FINISHED)) {
+# Write-Host $PROGRAMMER_OUTPUT
+
+if ($PROGRAMMER_EXIT_CODE -ne 0 -or $HAS_PROGRAMMER_ERROR -or -not ($HAS_100 -and $HAS_FINISHED)) {
     Write-Host "Gowin upload failed."
     exit [Math]::Max($PROGRAMMER_EXIT_CODE, 1)
 }
