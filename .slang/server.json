@@ -1,0 +1,9 @@
+{
+  "flags": "--include-directory=src --ignore-unknown-modules",
+  "index": [
+    {
+      "dirs": ["src"],
+      "excludeDirs": ["build", "sim"]
+    }
+  ]
+}
