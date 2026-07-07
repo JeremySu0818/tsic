@@ -46,8 +46,12 @@ hdmi_coin/
 |   |-- launch.json
 |   |-- tasks.json
 |   |-- run.ps1
-|   `-- png2mem.ps1
+|   |-- png2mem.ps1
+|   |-- bitmap2mem.ps1
+|   |-- zip.ps1
+|   `-- monitor.ps1
 |-- png/
+|-- bitmap/
 `-- src/
     |-- top.v
     |-- hdmi_coin.cst
@@ -83,7 +87,9 @@ hdmi_coin/
     `-- assets/
         |-- background.mem
         |-- obj_*.mem
-        `-- player_*.mem
+        |-- player_*.mem
+        |-- font.mem
+        `-- res_font.mem
 ```
 
 ## Video Spec
@@ -93,7 +99,7 @@ hdmi_coin/
 - Frame rate: 60 Hz
 - Internal stream: AXIS-like valid/ready/data/user
 - Stream pixel format: 24-bit BGR888
-- ROM asset format: RGB565 `.mem`
+- ROM asset formats: RGB565 `.mem` (background, objects), RGB323 8-bit `.mem` (player), 1-bit packed font `.mem` (UI/result text)
 
 The stream interface between `game_core` and `svo_hdmi` is:
 
@@ -190,15 +196,20 @@ Score clamps to the displayable BCD range, 0 to 999.
 - Movement: left / right only
 - Default speed: 8 px/frame
 - Skill patches can change the movement block locally.
-- Facing direction uses one right-facing sprite; left-facing display mirrors the sprite address
+- Facing direction uses right-facing source art; left-facing display mirrors the sprite address
+- Two-frame walk animation: the source frame alternates as the player travels (`player_x[6]`)
 - When `skill_on` is active, the player sprite switches to the fire skill sprite
 
-Player assets:
+Player assets are RGB323 (8-bit) two-frame walk sheets. Each `.mem` holds two 32 x 32
+frames concatenated (ROM depth 2048), and the pixel value `0x00` is transparent:
 
 ```text
 src/assets/player_right_32.mem
 src/assets/player_skill_32.mem
 ```
+
+The player ROMs are read as `DATA_WIDTH(8)` and converted to BGR888 by
+`rgb323_to_bgr888` inside `obj_layer`.
 
 ### Objects
 
@@ -307,7 +318,7 @@ Current UI behavior:
 - center score blinks during game over
 - skill charge bar at the bottom, 5 segments
 - skill countdown timer near the charge bar, 2 small digits
-- digits are logic-generated seven-segment shapes
+- digits are drawn from a 6x12 pixel font ROM (`src/assets/font.mem`) scaled by pixel replication
 - timer, score, and high score receive packed BCD digits from `game_ctrl`
 - UI receives `game_over`; it does not depend on the internal state encoding
 
@@ -323,6 +334,10 @@ SCORE 123
 BEST  456
 ```
 
+All glyphs come from a shared 6x12 font ROM (`src/assets/res_font.mem`) holding the
+digits 0-9, a blank, and the letters `B C E I M O P R S T U`, scaled by power-of-2
+pixel replication (title/value x4 -> 24x48, labels x2 -> 12x24).
+
 It is a combinational overlay layer with no frame counter. Define `RES_OVERLAY_DIM`
 at compile time to dim pixels outside the panel; leave it undefined for no dimming.
 
@@ -332,7 +347,7 @@ at compile time to dim pixels outside the panel; leave it undefined for no dimmi
 - `ff_sync`: two-flop synchronizer for external asynchronous signals
 - `debounce`: counter-based debounce for synchronized active-low buttons
 - `bin2bcd`: parameterized double-dabble converter for score and timer BCD values
-- `rom`: synchronous ROM wrapper for RGB565 assets
+- `rom`: synchronous ROM wrapper with parameterized `DATA_WIDTH` (16 for RGB565 background/objects, 8 for RGB323 player sprites and packed font glyphs)
 - `fifo`: small synchronous FIFO used by `spawn_queue`
 - `lfsr32`: pseudo-random generator for object spawn logic; `spawn_queue` uses one LFSR for position and one for type
 - `game_defs.vh`: shared gameplay geometry constants used by collision and rendering paths
@@ -406,20 +421,25 @@ skills/patches/gambler.patch
 
 ## Asset Format
 
-All `.mem` sprite/tile assets are RGB565:
+Sprite/tile assets use two color formats, both one token per pixel in row-major order:
 
 ```text
-one pixel token per pixel
-4 hex digits per pixel
-row-major order
-transparent pixel = 0000
+RGB565 (background, objects)   4 hex digits per pixel   transparent pixel = 0000
+RGB323 (player sprites)        2 hex digits per pixel   transparent pixel = 00
 ```
 
-The render layers convert RGB565 ROM output to BGR888 for the SVO video stream.
+RGB565 uses opaque black `0000` as its color-key transparent background; RGB323 takes
+transparency only from source alpha, and an opaque near-black pixel is bumped to `01`.
+
+Font assets (`font.mem`, `res_font.mem`) are 1-bit glyph bitmaps packed into 8-bit
+words: each 6-pixel row is one word (MSB = leftmost column), and each glyph is padded
+to 16 rows so the address is `{glyph, row}` with no multiply.
+
+The render layers convert RGB565 and RGB323 ROM output to BGR888 for the SVO video stream.
 
 ## PNG to MEM
 
-`.vscode/png2mem.ps1` converts all PNG files in an input folder to RGB565 `.mem` files.
+`.vscode/png2mem.ps1` converts all PNG files in an input folder to `.mem` files.
 
 Default behavior:
 
@@ -427,6 +447,18 @@ Default behavior:
 input : png/
 output: src/assets
 ```
+
+Conversion rules:
+
+- Color format is RGB565 by default. Bases in the `Sprites8bit` list (`player_right_32`,
+  `player_skill_32`) are written as RGB323 8-bit instead.
+- Auto-size: any-size source art is scaled (aspect-preserved, high-quality bicubic,
+  transparent pad) to fit the target `N x N` box. `N` comes from the trailing `_<N>` in
+  the base name (`obj_plus1_16` -> 16, `player_right_32` -> 32), or from the `FitSize`
+  override for bases with no size suffix (`background` -> 32).
+- Animation frames: files named `<base>.<N>.png` (e.g. `player_right_32.0.png`,
+  `player_right_32.1.png`) are concatenated in index order into a single multi-frame
+  `<base>.mem`.
 
 Run from PowerShell:
 
@@ -442,6 +474,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\.vscode\png2mem.ps1 .\src\
 
 The script only writes `.mem` files. It does not generate `assets.vh`, `assets.json`, or alpha map files.
 
+## Bitmap to MEM
+
+`.vscode/bitmap2mem.ps1` packs the 6x12 ASCII-art glyphs in `bitmap/*.txt` (a `#`
+marks a lit pixel) into the 1-bit font ROMs used by the text layers:
+
+```text
+font.mem      digits 0-9 only          (used by ui_layer)
+res_font.mem  digits + space + B C E I M O P R S T U   (used by res_overlay)
+```
+
+Run from PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\.vscode\bitmap2mem.ps1
+```
+
 ## VS Code Tasks
 
 Open VS Code with `hdmi_coin` as the workspace folder.
@@ -449,8 +497,11 @@ Open VS Code with `hdmi_coin` as the workspace folder.
 Available tasks:
 
 ```text
-run      build and upload through Gowin
-png2mem  convert PNG files under png/ to RGB565 MEM files in src/assets/
+run         build and upload through Gowin
+png2mem     convert PNG files under png/ to MEM sprite/tile files in src/assets/
+bitmap2mem  pack the ASCII glyphs under bitmap/ into font.mem and res_font.mem
+zip         stage the project (minus .git/.gitignore/skills) and zip it to the Desktop
+monitor     launch the Windows Camera app to view the HDMI capture
 ```
 
 Use:
@@ -498,14 +549,16 @@ Implemented:
 - separated `game_core` and `svo_hdmi`
 - background tile layer
 - object layer with RGB565 object sprites
-- player sprite rendering
-- UI layer with timer, score, high score, and button indicators
+- animated RGB323 player sprite (two-frame walk, mirror-for-left, skill sprite swap)
+- UI layer with timer, score, high score, and button indicators, using a pixel font ROM
+- game-over result panel (`res_overlay`) with a shared digit+letter font ROM
 - game controller with timer, movement, spawn queue, falling objects, collision, score, and high score update
 - cascaded BCD digit counters for UI timer, score, and high score outputs
 - skill base hooks with common `skill_slot` lifecycle and pass-through `spawn_postprocess`
 - button synchronization and debounce
-- PNG to RGB565 MEM conversion script
-- VS Code tasks for build/upload and asset conversion
+- PNG to MEM conversion script (auto-size, RGB565/RGB323, animation frames)
+- Bitmap to MEM font-packing script
+- VS Code tasks for build/upload, asset conversion, packaging, and camera capture
 
 Open items:
 
@@ -513,4 +566,561 @@ Open items:
 - tune sprite art
 - decide whether to add an idle/start screen
 - add more gameplay feedback if needed
-- verify full Gowin synthesis/resource usage after each asset change
+- watch Gowin resource usage: the design is nearly full (Logic ~93%, CLS ~99% on GW1NSR-4C)
+
+---
+
+# HDMI Coin（中文版）
+
+以 Verilog 實作、跑在 Tang Nano 4K 上的 HDMI 接金幣遊戲。
+
+請以 `hdmi_coin` 作為專案根目錄開啟本儲存庫。設計上刻意把按鈕輸入、遊戲邏輯、繪製圖層與 HDMI 輸出彼此分開，讓每個部分都能獨立開發與講解。
+
+## 管線（Pipeline）
+
+```text
+top
+  -> reset_sync
+  -> ff_sync
+  -> debounce
+  -> game_core
+       -> game_ctrl
+       -> bg_layer
+       -> obj_layer
+       -> ui_layer
+  -> svo_hdmi
+       -> svo_enc
+       -> svo_tmds
+       -> OSER10 / ELVDS_OBUF
+       -> HDMI
+```
+
+`game_core` 產生一條類 AXIS 的像素串流；`svo_hdmi` 只負責消化這條串流並驅動 HDMI 接腳。
+
+## 目錄結構
+
+```text
+hdmi_coin/
+|-- README.md
+|-- hdmi_coin.gprj
+|-- skills/
+|   |-- double_score.md
+|   |-- gambler.md
+|   |-- invincible_1.md
+|   |-- invincible_2.md
+|   |-- magnet.md
+|   |-- fs/
+|   |-- patches/
+|   |-- run_all_patches.ps1
+|   |-- speed_boost.md
+|   `-- star_rain.md
+|-- .vscode/
+|   |-- launch.json
+|   |-- tasks.json
+|   |-- run.ps1
+|   |-- png2mem.ps1
+|   |-- bitmap2mem.ps1
+|   |-- zip.ps1
+|   `-- monitor.ps1
+|-- png/
+|-- bitmap/
+`-- src/
+    |-- top.v
+    |-- hdmi_coin.cst
+    |-- hdmi_coin.sdc
+    |-- common/
+    |   |-- bin2bcd.v
+    |   |-- debounce.v
+    |   |-- ff_sync.v
+    |   |-- fifo.v
+    |   |-- lfsr32.v
+    |   |-- reset_sync.v
+    |   `-- rom.v
+    |-- game/
+    |   |-- game_defs.vh
+    |   |-- game_core.v
+    |   |-- game_ctrl.v
+    |   |-- skill_slot.v
+    |   |-- spawn_postprocess.v
+    |   `-- spawn_queue.v
+    |-- overlay/
+    |   |-- bg_layer.v
+    |   |-- obj_layer.v
+    |   |-- res_overlay.v
+    |   `-- ui_layer.v
+    |-- hdmi/
+    |   |-- svo_defines.vh
+    |   |-- svo_enc.v
+    |   |-- svo_hdmi.v
+    |   `-- svo_tmds.v
+    |-- ip/
+    |   |-- gowin_clkdiv.v
+    |   `-- gowin_pllvr.v
+    `-- assets/
+        |-- background.mem
+        |-- obj_*.mem
+        |-- player_*.mem
+        |-- font.mem
+        `-- res_font.mem
+```
+
+## 影像規格
+
+- 輸出模式：`640x480V`
+- 解析度：640 x 480
+- 更新率：60 Hz
+- 內部串流：類 AXIS 的 valid/ready/data/user
+- 串流像素格式：24-bit BGR888
+- ROM 資產格式：RGB565 `.mem`（背景、物件）、RGB323 8-bit `.mem`（玩家）、1-bit 打包字型 `.mem`（UI／結算文字）
+
+`game_core` 與 `svo_hdmi` 之間的串流介面為：
+
+```verilog
+output        out_axis_tvalid;
+input         out_axis_tready;
+output [23:0] out_axis_tdata;
+output [0:0]  out_axis_tuser;
+```
+
+`tuser[0]` 標記一個影格的第一個像素。
+
+## 操作按鈕
+
+板上按鈕在實體接腳上為低電位有效（active-low），進到遊戲內部後轉為高電位有效（active-high）的按下狀態。
+
+```text
+btn_left   pin 13
+btn_right  pin 17
+btn_start  pin 18
+btn_skill  pin 16
+```
+
+輸入路徑：
+
+```text
+raw active-low button
+  -> ff_sync
+  -> debounce
+  -> active-high stable level
+  -> game_core / game_ctrl / ui_layer
+```
+
+`ff_sync` 是雙正反器同步器；`debounce` 採計數器方式：只有在同步後的輸入持續維持不同狀態達 `DEBOUNCE_CYCLES` 後，輸出才會改變。
+
+## 遊戲規格
+
+### 狀態（States）
+
+`game_ctrl` 目前的遊戲狀態：
+
+```text
+1: playing
+2: game over
+```
+
+Reset 後直接從 `playing` 開始。狀態值 `0` 目前未使用。
+狀態暫存器保留在 `game_ctrl` 內部；繪製圖層只會收到較簡單的 `game_over` 訊號。
+
+`btn_start` 會重新開始遊戲：
+
+- 玩家回到中央
+- 計時器重置
+- 分數重置
+- 清除所有作用中的物件
+- 狀態回到 playing
+
+### 計時器與分數
+
+- `timer` 從 `TIMER_START` 開始。
+- `FPS` 定義幾個 `frame_tick` 脈衝算一秒；`timer` 每 `FPS` 個 frame tick 減一。
+- 當 `timer` 歸零時，遊戲進入 game over。
+- `timer` 與 `score` 以二進位暫存器儲存，並轉換成打包的 3 位數 BCD 供 UI 使用。
+- `high_score_bcd` 從 0 開始，以打包 BCD 儲存以供顯示與比較。
+- `high_score_bcd` 只在遊戲進入 game over 時更新。
+- `+time` 物件增加 `TIME_BONUS`，目前為 3 秒。
+- `charge` 物件增加 1 點技能充能，上限為 `SKILL_CHARGE_MAX`，目前為 5。
+- 在 base 分支中，`btn_skill` 已接線但不會觸發任何遊戲效果。
+- `skill_slot` 掌管共用的技能生命週期：按鈕邊緣偵測、充能檢查、計時倒數、`skill_on` 與 `skill_start`。
+- 在 base 分支中 `SKILL_ENABLE = 0`，因此 `skill_slot` 不會啟動也不會消耗充能。
+- 技能 patch 會啟用該 slot，並透過既有的 hook 點接上單一遊戲效果。
+
+物件效果：
+
+```text
+type 0: +1
+type 1: +3
+type 2: +5
+type 3: -3
+type 4: -5
+type 5: +time
+type 6: charge
+```
+
+分數會夾限在可顯示的 BCD 範圍內，0 到 999。
+
+### 玩家（Player）
+
+- 顯示尺寸：64 x 64
+- 來源圖素尺寸：32 x 32
+- 縮放：2 倍像素複製
+- 初始 x：288
+- 固定 y：352
+- 移動：僅左／右
+- 預設速度：8 px/frame
+- 技能 patch 可在本地修改移動區塊。
+- 面向以右向來源圖素為準；顯示左向時鏡射圖素位址
+- 兩格走路動畫：來源影格會隨玩家移動而交替（`player_x[6]`）
+- 當 `skill_on` 作用時，玩家圖素切換為火焰技能圖素
+
+玩家資產為 RGB323（8-bit）的兩格走路圖表。每個 `.mem` 連續存放兩個 32 x 32 影格（ROM 深度 2048），像素值 `0x00` 代表透明：
+
+```text
+src/assets/player_right_32.mem
+src/assets/player_skill_32.mem
+```
+
+玩家 ROM 以 `DATA_WIDTH(8)` 讀取，並在 `obj_layer` 內由 `rgb323_to_bgr888` 轉換為 BGR888。
+
+### 物件（Objects）
+
+- 最大作用中物件數：16
+- 顯示尺寸：32 x 32
+- 來源圖素尺寸：16 x 16
+- 縮放：2 倍像素複製
+- 預設落下速度：2 px/frame
+- 預設生成週期：24 影格
+- 技能 patch 可在本地修改生成計數器的重載值。
+
+物件類型機率：
+
+```text
++1      20%
++3      20%
++5      10%
+-3      20%
+-5      15%
++time    5%
+charge  10%
+```
+
+`spawn_queue` 產生原始生成資料。`spawn_postprocess` 位於 `spawn_queue` 與物件暫存器之間。base 版本為直通（pass-through），技能分支可利用它在不更動原始佇列的情況下重新映射物件類型或位置。
+
+每個物件的狀態：
+
+```text
+obj_valid
+obj_lane
+obj_xoff
+obj_ypos
+obj_type
+```
+
+座標公式：
+
+```text
+obj_x = 64 + obj_lane * 32 + obj_xoff
+obj_ypos = stored object y pixel coordinate
+```
+
+多物件的值以打包匯流排輸出：
+
+```text
+obj_valid_bus
+obj_lane_bus
+obj_xoff_bus
+obj_ypos_bus
+obj_type_bus
+```
+
+物件資產：
+
+```text
+src/assets/obj_plus1_16.mem
+src/assets/obj_plus3_16.mem
+src/assets/obj_plus5_16.mem
+src/assets/obj_minus3_16.mem
+src/assets/obj_minus5_16.mem
+src/assets/obj_time_16.mem
+src/assets/obj_charge_16.mem
+```
+
+## 繪製圖層（Render Layers）
+
+### `bg_layer`
+
+產生基底串流：
+
+- 讀取 `src/assets/background.mem`
+- 來源圖磚為 32 x 32 RGB565
+- 顯示圖磚以 2 倍像素複製為 64 x 64
+- 在 640 x 480 螢幕上重複鋪排
+
+### `obj_layer`
+
+接收背景串流，並疊上遊戲圖素。
+
+繪製順序：
+
+```text
+background
+  -> falling objects
+  -> player
+```
+
+圖素 ROM 讀取為同步式，因此命中旗標與背景像素會被延遲以對齊 ROM 延遲。
+
+### `ui_layer`
+
+接收物件串流，並在畫面底部疊上 64 像素高的 UI。
+
+版面配置：
+
+```text
+left    timer, 3 digits
+center  score, 3 digits
+right   high score, 3 digits
+```
+
+目前 UI 行為：
+
+- 無英文標籤
+- 螢幕兩側有左／右按鈕指示
+- game over 時中央分數會閃爍
+- 底部有技能充能條，共 5 段
+- 充能條附近有技能倒數計時，2 個小數字
+- 數字取自 6x12 像素字型 ROM（`src/assets/font.mem`），以像素複製縮放
+- timer、score、high score 由 `game_ctrl` 提供打包 BCD 數字
+- UI 收到的是 `game_over`；不依賴內部狀態編碼
+
+### `res_overlay`
+
+接收 UI 串流，並疊上 game over 的結算面板。
+
+內容：
+
+```text
+TIME UP
+SCORE 123
+BEST  456
+```
+
+所有字形皆來自共用的 6x12 字型 ROM（`src/assets/res_font.mem`），內含數字 0-9、一個空白，以及字母 `B C E I M O P R S T U`，以 2 的次方倍像素複製縮放（標題／數值 x4 -> 24x48，標籤 x2 -> 12x24）。
+
+它是一個組合邏輯的疊加圖層，沒有影格計數器。可在編譯時定義 `RES_OVERLAY_DIM` 以使面板外的像素變暗；不定義則不變暗。
+
+## 共用模組（Common Modules）
+
+- `reset_sync`：`top` 使用的重置同步器
+- `ff_sync`：處理外部非同步訊號的雙正反器同步器
+- `debounce`：針對同步後低電位有效按鈕的計數器式防彈跳
+- `bin2bcd`：可參數化的 double-dabble 轉換器，用於分數與計時器的 BCD 值
+- `rom`：同步 ROM 包裝器，具可參數化的 `DATA_WIDTH`（RGB565 背景／物件為 16，RGB323 玩家圖素與打包字型字形為 8）
+- `fifo`：`spawn_queue` 使用的小型同步 FIFO
+- `lfsr32`：物件生成邏輯用的偽隨機產生器；`spawn_queue` 以一個 LFSR 決定位置、另一個決定類型
+- `game_defs.vh`：碰撞與繪製路徑共用的遊戲幾何常數
+
+## 技能基底（Skill Base）
+
+base 分支刻意不實作任何技能，只暴露乾淨的 hook 點，讓每個教學分支都能套用單一技能 patch 而不動到影像管線。
+
+基底技能路徑：
+
+```text
+game_ctrl
+  -> skill_slot          // common lifecycle, disabled by default
+  -> spawn_queue
+  -> spawn_postprocess   // pass-through shell
+  -> object registers
+```
+
+`skill_slot` 掌管每個技能分支共用的邏輯：
+
+```text
+btn_skill rising edge
+charge full check
+skill_timer countdown
+skill_on
+skill_start
+charge clear trigger
+```
+
+`game_ctrl` 暴露共用的 hack 點：
+
+```text
+hit_player_l / hit_player_r / hit_player_t / hit_player_b
+score_delta
+score_delta_eff
+player_speed
+spawn_period
+spawn_postprocess
+```
+
+base 分支直接使用這些訊號。技能 patch 可在 patch 內部覆寫如 `score_delta_eff`、`player_speed_eff` 或 `spawn_period_eff` 等有效訊號。
+
+技能規格存放於 `skills/`，一個技能一個檔案。可直接套用的 patch 檔存放於 `skills/patches/`。
+每個 patch 只會啟用共用 slot 並改變該技能特有的效果。
+
+Patch 用法：
+
+```powershell
+git apply --ignore-whitespace .\skills\patches\magnet.patch
+```
+
+每個 patch 都預期套用在從此 base 開出的全新分支上，且並非設計成彼此堆疊套用。
+
+```text
+skills/magnet.md
+skills/double_score.md
+skills/speed_boost.md
+skills/invincible_1.md
+skills/invincible_2.md
+skills/star_rain.md
+skills/gambler.md
+
+skills/patches/magnet.patch
+skills/patches/double_score.patch
+skills/patches/speed_boost.patch
+skills/patches/invincible_1.patch
+skills/patches/invincible_2.patch
+skills/patches/star_rain.patch
+skills/patches/gambler.patch
+```
+
+## 資產格式（Asset Format）
+
+圖素／圖磚資產使用兩種色彩格式，皆以列優先（row-major）順序、每像素一個 token：
+
+```text
+RGB565 (background, objects)   4 hex digits per pixel   transparent pixel = 0000
+RGB323 (player sprites)        2 hex digits per pixel   transparent pixel = 00
+```
+
+RGB565 以不透明黑 `0000` 作為其色鍵（color-key）透明背景；RGB323 只依來源 alpha 判定透明，且不透明的近黑像素會被提升為 `01`。
+
+字型資產（`font.mem`、`res_font.mem`）是打包成 8-bit 字組的 1-bit 字形點陣：每個 6 像素列為一個字組（MSB = 最左欄），且每個字形補齊到 16 列，讓位址為 `{glyph, row}` 而無需乘法。
+
+繪製圖層會把 RGB565 與 RGB323 的 ROM 輸出轉換為 BGR888 供 SVO 影像串流使用。
+
+## PNG 轉 MEM
+
+`.vscode/png2mem.ps1` 會把輸入資料夾內所有 PNG 檔轉成 `.mem` 檔。
+
+預設行為：
+
+```text
+input : png/
+output: src/assets
+```
+
+轉換規則：
+
+- 色彩格式預設為 RGB565。位於 `Sprites8bit` 清單中的基底名（`player_right_32`、`player_skill_32`）則改寫為 RGB323 8-bit。
+- 自動尺寸：任意尺寸的來源圖會被縮放（保持長寬比、高品質 bicubic、透明填邊）以符合目標 `N x N` 方框。`N` 取自基底名尾端的 `_<N>`（`obj_plus1_16` -> 16、`player_right_32` -> 32），或取自無尺寸後綴基底的 `FitSize` 覆寫值（`background` -> 32）。
+- 動畫影格：命名為 `<base>.<N>.png` 的檔案（例如 `player_right_32.0.png`、`player_right_32.1.png`）會依索引順序串接成單一多影格的 `<base>.mem`。
+
+從 PowerShell 執行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\.vscode\png2mem.ps1
+```
+
+自訂資料夾：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\.vscode\png2mem.ps1 .\src\assets\objects .\src\assets\objects
+```
+
+此腳本只會寫出 `.mem` 檔，不會產生 `assets.vh`、`assets.json` 或 alpha map 檔。
+
+## Bitmap 轉 MEM
+
+`.vscode/bitmap2mem.ps1` 會把 `bitmap/*.txt` 中的 6x12 ASCII 字形（以 `#` 標記亮起的像素）打包成文字圖層所用的 1-bit 字型 ROM：
+
+```text
+font.mem      digits 0-9 only          (used by ui_layer)
+res_font.mem  digits + space + B C E I M O P R S T U   (used by res_overlay)
+```
+
+從 PowerShell 執行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\.vscode\bitmap2mem.ps1
+```
+
+## VS Code 工作（Tasks）
+
+以 `hdmi_coin` 作為工作區資料夾開啟 VS Code。
+
+可用的工作：
+
+```text
+run         build and upload through Gowin
+png2mem     convert PNG files under png/ to MEM sprite/tile files in src/assets/
+bitmap2mem  pack the ASCII glyphs under bitmap/ into font.mem and res_font.mem
+zip         stage the project (minus .git/.gitignore/skills) and zip it to the Desktop
+monitor     launch the Windows Camera app to view the HDMI capture
+```
+
+使用方式：
+
+```text
+Terminal -> Run Task... -> run
+Terminal -> Run Task... -> png2mem
+```
+
+`run` 是預設的建置工作。
+
+## 建置與上傳
+
+`.vscode/run.ps1` 會做：
+
+1. 若存在 `hdmi_coin.prj` 則開啟它，否則開啟 `hdmi_coin.gprj`。
+2. 執行 Gowin 建置。
+3. 在 `impl/pnr` 底下找到產生的 `.fs` 位元流。
+4. 以 `programmer_cli` 上傳該位元流。
+
+目前腳本中預期的 Gowin 安裝路徑：
+
+```text
+C:\Gowin\Gowin_V1.9.11.03_Education_x64
+```
+
+若你的 Gowin 安裝路徑不同，請修改 `.vscode/run.ps1` 中的 `$GOWIN_HOME`。
+
+## 開發須知
+
+- 保持 `svo_hdmi` 不含遊戲邏輯。
+- 在 `game_ctrl` 內新增遊戲玩法功能。
+- 在 `bg_layer`、`obj_layer` 或 `ui_layer` 內新增視覺變化。
+- 讓 ROM 資產保持精簡，因為 Tang Nano 4K 的記憶體與 LUT 資源有限。
+- 盡量使用尺寸為 2 的次方的來源圖素。
+- 為了對 FPGA 友善的縮放，偏好像素複製而非線性內插。
+- 把每個繪製圖層都當成可獨立測試的階段。
+
+## 目前實作狀態
+
+已實作：
+
+- 640 x 480 HDMI 輸出
+- 將 `reset_sync` 從 `top` 分離
+- 將 `game_core` 與 `svo_hdmi` 分離
+- 背景圖磚圖層
+- 使用 RGB565 物件圖素的物件圖層
+- 動畫化的 RGB323 玩家圖素（兩格走路、左向鏡射、技能圖素切換）
+- 具計時器、分數、最高分與按鈕指示的 UI 圖層，使用像素字型 ROM
+- 使用共用數字＋字母字型 ROM 的 game over 結算面板（`res_overlay`）
+- 具計時器、移動、生成佇列、落下物件、碰撞、分數與最高分更新的遊戲控制器
+- 供 UI 計時器、分數與最高分輸出用的串接式 BCD 位數計數器
+- 具共用 `skill_slot` 生命週期與直通 `spawn_postprocess` 的技能基底 hook
+- 按鈕同步與防彈跳
+- PNG 轉 MEM 轉換腳本（自動尺寸、RGB565／RGB323、動畫影格）
+- Bitmap 轉 MEM 字型打包腳本
+- 供建置／上傳、資產轉換、打包與相機擷取用的 VS Code 工作
+
+待辦項目：
+
+- 調整生成速率與落下速度
+- 調整圖素美術
+- 決定是否加入待機／開始畫面
+- 視需要增加更多遊戲回饋
+- 留意 Gowin 資源用量：設計已接近滿載（GW1NSR-4C 上 Logic ~93%、CLS ~99%）
