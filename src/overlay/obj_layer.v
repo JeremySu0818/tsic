@@ -41,14 +41,14 @@ module obj_layer #(
 localparam PLAYER_SRC_BITS = 5;
 localparam PLAYER_SRC_ADDR_WIDTH = 11;         // {frame(1), src_y(5), src_x(5)} -> 2-frame walk sheet
 
-localparam OBJ_ADDR_WIDTH = 8;
-localparam [15:0] TRANSPARENT_VAL = 16'h0000;
+localparam OBJ_ATLAS_ADDR_WIDTH = 11;      // {type(3), src_y(4), src_x(4)}
+localparam OBJ_ATLAS_DEPTH = 2048;         // 8 type slots x 256, 7 used
+localparam [7:0] TRANSPARENT_VAL = 8'h00;
 
 reg [`SVO_XYBITS-1:0] hcursor;
 reg [`SVO_XYBITS-1:0] vcursor;
 
 reg obj_hit_d;
-reg [OBJ_TYPE_BITS-1:0] obj_type_d;
 reg hit_player_d;
 reg skill_on_d;
 reg [SVO_BITS_PER_PIXEL-1:0] bg_rgb_d;
@@ -109,24 +109,10 @@ end
 // 16x16 -> 32x32 scaling by replicating pixels
 wire [3:0] obj_src_x = obj_local_x[4:1];
 wire [3:0] obj_src_y = obj_local_y[4:1];
-wire [OBJ_ADDR_WIDTH-1:0] obj_addr = {obj_src_y, obj_src_x};
-
-// Sprite selection
-wire [15:0] obj_plus1_rgb565;
-wire [15:0] obj_plus3_rgb565;
-wire [15:0] obj_plus5_rgb565;
-wire [15:0] obj_minus3_rgb565;
-wire [15:0] obj_minus5_rgb565;
-wire [15:0] obj_time_rgb565;
-wire [15:0] obj_charge_rgb565;
-wire [15:0] obj_rgb565 =
-	obj_type_d == 0 ? obj_plus1_rgb565 :
-	obj_type_d == 1 ? obj_plus3_rgb565 :
-	obj_type_d == 2 ? obj_plus5_rgb565 :
-	obj_type_d == 3 ? obj_minus3_rgb565 :
-	obj_type_d == 4 ? obj_minus5_rgb565 :
-	obj_type_d == 5 ? obj_time_rgb565 :
-						 obj_charge_rgb565;
+// One atlas ROM holds every object sprite; the type picks its 256-entry slot, so
+// no output mux is needed -- the registered read is already the selected pixel.
+wire [OBJ_ATLAS_ADDR_WIDTH-1:0] obj_atlas_addr = {obj_type_now, obj_src_y, obj_src_x};
+wire [7:0] obj_rgb;
 
 wire hit_player = pixel_x >= player_x && pixel_x < player_x + `PLAYER_W &&
 				  pixel_y >= `PLAYER_Y && pixel_y < `PLAYER_Y + `PLAYER_H;
@@ -145,19 +131,6 @@ wire [7:0] player_normal_rgb;
 wire [7:0] player_skill_rgb;
 wire [7:0] player_rgb = skill_on_d ? player_skill_rgb : player_normal_rgb;
 
-function [23:0] rgb565_to_bgr888;
-	input [15:0] rgb565;
-	reg [7:0] r;
-	reg [7:0] g;
-	reg [7:0] b;
-	begin
-		r = {rgb565[15:11], rgb565[15:13]};
-		g = {rgb565[10: 5], rgb565[10: 9]};
-		b = {rgb565[ 4: 0], rgb565[ 4: 2]};
-		rgb565_to_bgr888 = {b, g, r};
-	end
-endfunction
-
 function [23:0] rgb323_to_bgr888;
 	input [7:0] c;                 // [7:5]=R3 [4:3]=G2 [2:0]=B3
 	reg [7:0] r;
@@ -173,8 +146,8 @@ endfunction
 
 // If there is an object then just show it, otherwise show the background pixel
 wire [SVO_BITS_PER_PIXEL-1:0] pxl_after_obj =
-	obj_hit_d && obj_rgb565 != TRANSPARENT_VAL ?
-	rgb565_to_bgr888(obj_rgb565) : bg_rgb_d;
+	obj_hit_d && obj_rgb != TRANSPARENT_VAL ?
+	rgb323_to_bgr888(obj_rgb) : bg_rgb_d;
 
 // If the player sprite is hit then show it, otherwise show whatever comes from obj layer
 wire [SVO_BITS_PER_PIXEL-1:0] pxl_after_player =
@@ -189,7 +162,6 @@ assign out_axis_tuser  = tuser_d;
 always @(posedge clk) begin
 	if (!resetn) begin
 		obj_hit_d <= 0;
-		obj_type_d <= 0;
 		hit_player_d <= 0;
 		skill_on_d <= 0;
 		bg_rgb_d <= 0;
@@ -199,7 +171,6 @@ always @(posedge clk) begin
 		tvalid_d <= in_axis_tvalid;
 		if (fire) begin
 			obj_hit_d <= obj_hit;
-			obj_type_d <= obj_type_now;
 			hit_player_d <= hit_player;
 			skill_on_d <= skill_on;
 			bg_rgb_d <= in_axis_tdata;
@@ -228,81 +199,17 @@ always @(posedge clk) begin
 	end
 end
 
+// Single object atlas ROM (RGB323): 8 type slots x 256 entries, addressed by
+// {type, src_y, src_x}. Only slots 0-6 are populated by obj_atlas.mem.
 rom #(
-	.DATA_WIDTH(16),
-	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
-	.DEPTH(256),
-	.INIT_FILE("src/assets/obj_plus1_16.mem")
-) u_obj_plus1_rom (
+	.DATA_WIDTH(8),
+	.ADDR_WIDTH(OBJ_ATLAS_ADDR_WIDTH),
+	.DEPTH(OBJ_ATLAS_DEPTH),
+	.INIT_FILE("src/assets/obj_atlas.mem")
+) u_obj_atlas_rom (
 	.clk(clk),
-	.addr(obj_addr),
-	.data(obj_plus1_rgb565)
-);
-
-rom #(
-	.DATA_WIDTH(16),
-	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
-	.DEPTH(256),
-	.INIT_FILE("src/assets/obj_plus3_16.mem")
-) u_obj_plus3_rom (
-	.clk(clk),
-	.addr(obj_addr),
-	.data(obj_plus3_rgb565)
-);
-
-rom #(
-	.DATA_WIDTH(16),
-	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
-	.DEPTH(256),
-	.INIT_FILE("src/assets/obj_plus5_16.mem")
-) u_obj_plus5_rom (
-	.clk(clk),
-	.addr(obj_addr),
-	.data(obj_plus5_rgb565)
-);
-
-rom #(
-	.DATA_WIDTH(16),
-	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
-	.DEPTH(256),
-	.INIT_FILE("src/assets/obj_minus3_16.mem")
-) u_obj_minus3_rom (
-	.clk(clk),
-	.addr(obj_addr),
-	.data(obj_minus3_rgb565)
-);
-
-rom #(
-	.DATA_WIDTH(16),
-	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
-	.DEPTH(256),
-	.INIT_FILE("src/assets/obj_minus5_16.mem")
-) u_obj_minus5_rom (
-	.clk(clk),
-	.addr(obj_addr),
-	.data(obj_minus5_rgb565)
-);
-
-rom #(
-	.DATA_WIDTH(16),
-	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
-	.DEPTH(256),
-	.INIT_FILE("src/assets/obj_time_16.mem")
-) u_obj_time_rom (
-	.clk(clk),
-	.addr(obj_addr),
-	.data(obj_time_rgb565)
-);
-
-rom #(
-	.DATA_WIDTH(16),
-	.ADDR_WIDTH(OBJ_ADDR_WIDTH),
-	.DEPTH(256),
-	.INIT_FILE("src/assets/obj_charge_16.mem")
-) u_obj_charge_rom (
-	.clk(clk),
-	.addr(obj_addr),
-	.data(obj_charge_rgb565)
+	.addr(obj_atlas_addr),
+	.data(obj_rgb)
 );
 
 rom #(

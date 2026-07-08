@@ -86,7 +86,7 @@ hdmi_coin/
     |   `-- gowin_pllvr.v
     `-- assets/
         |-- background.mem
-        |-- obj_*.mem
+        |-- obj_atlas.mem
         |-- player_*.mem
         |-- font.mem
         `-- res_font.mem
@@ -217,6 +217,7 @@ The player ROMs are read as `DATA_WIDTH(8)` and converted to BGR888 by
 - Display size: 32 x 32
 - Source sprite size: 16 x 16
 - Scaling: 2x pixel replication
+- Storage: RGB323 (8-bit); all types share one atlas ROM addressed by `{obj_type, src_y, src_x}`
 - Default fall speed: 2 px/frame
 - Default spawn period: 24 frames
 - Skill patches can change the spawn counter reload locally.
@@ -265,13 +266,7 @@ obj_type_bus
 Object assets:
 
 ```text
-src/assets/obj_plus1_16.mem
-src/assets/obj_plus3_16.mem
-src/assets/obj_plus5_16.mem
-src/assets/obj_minus3_16.mem
-src/assets/obj_minus5_16.mem
-src/assets/obj_time_16.mem
-src/assets/obj_charge_16.mem
+src/assets/obj_atlas.mem   (all 7 sprites, RGB323, one 256-entry slot per type)
 ```
 
 ## Render Layers
@@ -424,12 +419,13 @@ skills/patches/gambler.patch
 Sprite/tile assets use two color formats, both one token per pixel in row-major order:
 
 ```text
-RGB565 (background, objects)   4 hex digits per pixel   transparent pixel = 0000
-RGB323 (player sprites)        2 hex digits per pixel   transparent pixel = 00
+RGB565 (background)         4 hex digits per pixel
+RGB323 (player, objects)    2 hex digits per pixel   transparent pixel = 00
 ```
 
-RGB565 uses opaque black `0000` as its color-key transparent background; RGB323 takes
-transparency only from source alpha, and an opaque near-black pixel is bumped to `01`.
+Transparency comes only from PNG alpha: a fully transparent source pixel is written as
+`00` (RGB323) and the render layers treat `00` as transparent. Opaque near-black art is
+bumped to `01` so it stays visible. The background layer (RGB565) is opaque, no transparency.
 
 Font assets (`font.mem`, `res_font.mem`) are 1-bit glyph bitmaps packed into 8-bit
 words: each 6-pixel row is one word (MSB = leftmost column), and each glyph is padded
@@ -450,8 +446,11 @@ output: src/assets
 
 Conversion rules:
 
-- Color format is RGB565 by default. Bases in the `Sprites8bit` list (`player_right_32`,
-  `player_skill_32`) are written as RGB323 8-bit instead.
+- Color format is RGB565 by default; the player sprites (`Sprites8bit`) and the object
+  sprites (`ObjAtlas`) are written as RGB323 8-bit instead.
+- Transparency comes only from PNG alpha (`A==0` -> `00`); there is no black color-key.
+- Object atlas: the object sprites are packed in gameplay type order 0-6 into a single
+  `obj_atlas.mem` (not one file each), so `obj_layer` reads them from one ROM.
 - Auto-size: any-size source art is scaled (aspect-preserved, high-quality bicubic,
   transparent pad) to fit the target `N x N` box. `N` comes from the trailing `_<N>` in
   the base name (`obj_plus1_16` -> 16, `player_right_32` -> 32), or from the `FitSize`
@@ -548,7 +547,7 @@ Implemented:
 - separated `reset_sync` from `top`
 - separated `game_core` and `svo_hdmi`
 - background tile layer
-- object layer with RGB565 object sprites
+- object layer with RGB323 object sprites in a single atlas ROM (type in the address)
 - animated RGB323 player sprite (two-frame walk, mirror-for-left, skill sprite swap)
 - UI layer with timer, score, high score, and button indicators, using a pixel font ROM
 - game-over result panel (`res_overlay`) with a shared digit+letter font ROM
@@ -566,7 +565,7 @@ Open items:
 - tune sprite art
 - decide whether to add an idle/start screen
 - add more gameplay feedback if needed
-- watch Gowin resource usage: the design is nearly full (Logic ~93%, CLS ~99% on GW1NSR-4C)
+- watch Gowin resource usage (currently Logic ~64%, CLS ~83%, BSRAM 6/10 on GW1NSR-4C)
 
 ---
 
@@ -658,7 +657,7 @@ hdmi_coin/
     |   `-- gowin_pllvr.v
     `-- assets/
         |-- background.mem
-        |-- obj_*.mem
+        |-- obj_atlas.mem
         |-- player_*.mem
         |-- font.mem
         `-- res_font.mem
@@ -787,6 +786,7 @@ src/assets/player_skill_32.mem
 - 顯示尺寸：32 x 32
 - 來源圖素尺寸：16 x 16
 - 縮放：2 倍像素複製
+- 儲存：RGB323（8-bit）；所有 type 共用一顆 atlas ROM，以 `{obj_type, src_y, src_x}` 定址
 - 預設落下速度：2 px/frame
 - 預設生成週期：24 影格
 - 技能 patch 可在本地修改生成計數器的重載值。
@@ -835,13 +835,7 @@ obj_type_bus
 物件資產：
 
 ```text
-src/assets/obj_plus1_16.mem
-src/assets/obj_plus3_16.mem
-src/assets/obj_plus5_16.mem
-src/assets/obj_minus3_16.mem
-src/assets/obj_minus5_16.mem
-src/assets/obj_time_16.mem
-src/assets/obj_charge_16.mem
+src/assets/obj_atlas.mem   (all 7 sprites, RGB323, one 256-entry slot per type)
 ```
 
 ## 繪製圖層（Render Layers）
@@ -991,11 +985,11 @@ skills/patches/gambler.patch
 圖素／圖磚資產使用兩種色彩格式，皆以列優先（row-major）順序、每像素一個 token：
 
 ```text
-RGB565 (background, objects)   4 hex digits per pixel   transparent pixel = 0000
-RGB323 (player sprites)        2 hex digits per pixel   transparent pixel = 00
+RGB565 (background)         4 hex digits per pixel
+RGB323 (player, objects)    2 hex digits per pixel   transparent pixel = 00
 ```
 
-RGB565 以不透明黑 `0000` 作為其色鍵（color-key）透明背景；RGB323 只依來源 alpha 判定透明，且不透明的近黑像素會被提升為 `01`。
+透明一律只來自 PNG alpha：完全透明的來源像素寫成 `00`（RGB323），繪製圖層把 `00` 當透明；不透明的近黑美術像素會被提升為 `01` 以維持可見。背景層（RGB565）不透明、無透明需求。
 
 字型資產（`font.mem`、`res_font.mem`）是打包成 8-bit 字組的 1-bit 字形點陣：每個 6 像素列為一個字組（MSB = 最左欄），且每個字形補齊到 16 列，讓位址為 `{glyph, row}` 而無需乘法。
 
@@ -1014,7 +1008,9 @@ output: src/assets
 
 轉換規則：
 
-- 色彩格式預設為 RGB565。位於 `Sprites8bit` 清單中的基底名（`player_right_32`、`player_skill_32`）則改寫為 RGB323 8-bit。
+- 色彩格式預設為 RGB565；玩家 sprite（`Sprites8bit`）與物件 sprite（`ObjAtlas`）則寫成 RGB323 8-bit。
+- 透明一律只來自 PNG alpha（`A==0` -> `00`），沒有黑色色鍵。
+- 物件 atlas：物件 sprite 依 type 順序 0-6 打包成單一 `obj_atlas.mem`（不再一個檔一個），讓 `obj_layer` 用一顆 ROM 讀取。
 - 自動尺寸：任意尺寸的來源圖會被縮放（保持長寬比、高品質 bicubic、透明填邊）以符合目標 `N x N` 方框。`N` 取自基底名尾端的 `_<N>`（`obj_plus1_16` -> 16、`player_right_32` -> 32），或取自無尺寸後綴基底的 `FitSize` 覆寫值（`background` -> 32）。
 - 動畫影格：命名為 `<base>.<N>.png` 的檔案（例如 `player_right_32.0.png`、`player_right_32.1.png`）會依索引順序串接成單一多影格的 `<base>.mem`。
 
@@ -1105,7 +1101,7 @@ C:\Gowin\Gowin_V1.9.11.03_Education_x64
 - 將 `reset_sync` 從 `top` 分離
 - 將 `game_core` 與 `svo_hdmi` 分離
 - 背景圖磚圖層
-- 使用 RGB565 物件圖素的物件圖層
+- 使用 RGB323 物件圖素、單一 atlas ROM 的物件圖層（type 併入位址）
 - 動畫化的 RGB323 玩家圖素（兩格走路、左向鏡射、技能圖素切換）
 - 具計時器、分數、最高分與按鈕指示的 UI 圖層，使用像素字型 ROM
 - 使用共用數字＋字母字型 ROM 的 game over 結算面板（`res_overlay`）
@@ -1123,4 +1119,4 @@ C:\Gowin\Gowin_V1.9.11.03_Education_x64
 - 調整圖素美術
 - 決定是否加入待機／開始畫面
 - 視需要增加更多遊戲回饋
-- 留意 Gowin 資源用量：設計已接近滿載（GW1NSR-4C 上 Logic ~93%、CLS ~99%）
+- 留意 Gowin 資源用量（目前 GW1NSR-4C 上 Logic ~64%、CLS ~83%、BSRAM 6/10）

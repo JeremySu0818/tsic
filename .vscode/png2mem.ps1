@@ -3,6 +3,10 @@ param(
     [string]$OutputDir = "src\assets",
     # basenames stored as RGB323 (8-bit) instead of RGB565 (16-bit)
     [string[]]$Sprites8bit = @("player_right_32", "player_skill_32"),
+    # Object sprites, in gameplay type order 0..6, packed (RGB323) into one atlas
+    # ROM instead of one .mem each. Written to $ObjAtlasFile; not emitted singly.
+    [string[]]$ObjAtlas = @("obj_plus1_16", "obj_plus3_16", "obj_plus5_16", "obj_minus3_16", "obj_minus5_16", "obj_time_16", "obj_charge_16"),
+    [string]$ObjAtlasFile = "obj_atlas.mem",
     # Target sprite box size (N x N) is taken from the trailing "_<N>" in the
     # base name (e.g. obj_plus1_16 -> 16, player_right_32 -> 32); any-size source
     # art is scaled to fit (aspect-preserved, transparent pad). This map is an
@@ -99,8 +103,8 @@ function Write-Pixels {
                 }
             }
             else {
-                # RGB565: original behaviour. Some sprites use OPAQUE BLACK as the
-                # color-key transparent background, so black must stay 0x0000.
+                # RGB565 has no alpha channel: transparency comes from PNG alpha
+                # (A==0 -> 0x0000). Only the opaque background layer uses this format.
                 $r = [int]$color.R; $g = [int]$color.G; $b = [int]$color.B
                 if ([int]$color.A -eq 0) { $r = 0; $g = 0; $b = 0 }
                 $val16 = (($r -shr 3) -shl 11) -bor (($g -shr 2) -shl 5) -bor ($b -shr 3)
@@ -129,6 +133,7 @@ $convertedCount = 0
 
 foreach ($png in $singles) {
     $base = $png.BaseName
+    if ($ObjAtlas -contains $base) { continue }   # packed into the atlas below, not emitted singly
     $use8bit = $Sprites8bit -contains $base
     if ($use8bit) { $fmt = "RGB323" } else { $fmt = "RGB565" }
     $memPath = Join-Path $OutputPath ($base + ".mem")
@@ -164,6 +169,26 @@ foreach ($base in ($groups.Keys | Sort-Object)) {
     }
     $convertedCount++
     Write-Host "$base.{$(($frames | ForEach-Object { $_.Idx }) -join ',')} -> $base.mem ($($frames.Count) frames, $fmt)"
+}
+
+# Object atlas: concatenate the object sprites (RGB323) in type order 0..6 into a
+# single .mem so obj_layer can read them from one ROM addressed by {type, y, x}.
+if ($ObjAtlas.Count -gt 0) {
+    $atlasPath = Join-Path $OutputPath $ObjAtlasFile
+    $writer = [System.IO.StreamWriter]::new($atlasPath, $false, [System.Text.Encoding]::ASCII)
+    try {
+        foreach ($base in $ObjAtlas) {
+            $png = $singles | Where-Object { $_.BaseName -eq $base } | Select-Object -First 1
+            if (-not $png) { throw "Atlas member PNG not found in ${InputPath}: $base.png" }
+            $bmp = Load-Sprite $png.FullName $base
+            try { Write-Pixels $bmp $writer $true } finally { $bmp.Dispose() }
+        }
+    }
+    finally {
+        $writer.Dispose()
+    }
+    $convertedCount++
+    Write-Host "$($ObjAtlas -join ',') -> $ObjAtlasFile ($($ObjAtlas.Count) sprites, RGB323 atlas)"
 }
 
 Write-Host "Converted $convertedCount item(s)."
