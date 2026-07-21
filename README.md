@@ -10,9 +10,12 @@ You can run the real game/render RTL without connecting or programming the board
 powershell -ExecutionPolicy Bypass -File .\sim\run.ps1
 ```
 
-The simulator provides all five button inputs, reset, a 640x480 HDMI pixel-stream
-viewer, and live internal state. See [`sim/README.md`](sim/README.md) for controls,
-scope, and the smoke test. In VS Code, run the `simulate` task.
+The default simulator is a native C++20/Win32 backend with all five button
+inputs, reset, a resizable/fullscreen 640x480 framebuffer, and a fixed 60 Hz
+game loop. Use `F11` for fullscreen. The original Icarus RTL viewer remains
+available through `sim/run.ps1 -Exact` for regression checks. See
+[`sim/README.md`](sim/README.md) for controls and tests. In VS Code, run the
+`simulate` task.
 
 Open this repository with `hdmi_coin` as the project root. The design keeps button input, game logic, render layers, and HDMI output separated so each part can be developed and explained independently.
 
@@ -203,6 +206,12 @@ type 7: magnet (8 seconds, accelerates nearby +1/+3/+5 objects toward the player
 type 8: mystery (randomly copies one of the other eight object effects)
 ```
 
+Ground hazard:
+
+- A pixel turtle randomly enters from the left or right about every 2–4 seconds.
+- It uses a large 64x64 render box, slides across the grass at 3 px/frame, and can be avoided by jumping.
+- Touching it removes 10 score and 10 seconds (both clamp at zero), resets the combo, and despawns the turtle.
+
 Score clamps to the displayable BCD range, 0 to 999.
 
 ### Player
@@ -211,7 +220,7 @@ Score clamps to the displayable BCD range, 0 to 999.
 - Source sprite size: 32 x 32
 - Scaling: 2x pixel replication
 - Initial x: 288
-- Ground y: 208 (the player sprite's top edge; its feet align with the grass at Y=272)
+- Ground y: 272 (the player sprite's top edge; its feet align with the grass at Y=336)
 - Movement: left / right only
 - `btn_jump` launches a gravity-driven jump; the live Y position is shared by
   collision and rendering, so airborne catches are real gameplay interactions
@@ -291,7 +300,7 @@ obj_type_bus
 Object assets:
 
 ```text
-src/assets/obj_atlas.mem   (all 7 sprites, RGB323, one 256-entry slot per type)
+src/assets/obj_atlas.mem   (10 sprites including the turtle, RGB323, one 256-entry slot per type)
 ```
 
 ## Render Layers
@@ -477,7 +486,7 @@ Conversion rules:
 - Color format is RGB565 by default; the player sprites (`Sprites8bit`) and the object
   sprites (`ObjAtlas`) are written as RGB323 8-bit instead.
 - Transparency comes only from PNG alpha (`A==0` -> `00`); there is no black color-key.
-- Object atlas: the object sprites are packed in gameplay type order 0-6 into a single
+- Object atlas: the object sprites are packed in gameplay type order 0-9 into a single
   `obj_atlas.mem` (not one file each), so `obj_layer` reads them from one ROM.
 - Auto-size: any-size source art is scaled (aspect-preserved, high-quality bicubic,
   transparent pad) to fit the target `N x N` box, from the trailing `_<N>` in the base
@@ -869,7 +878,7 @@ obj_type_bus
 物件資產：
 
 ```text
-src/assets/obj_atlas.mem   (all 7 sprites, RGB323, one 256-entry slot per type)
+src/assets/obj_atlas.mem   (10 sprites including the turtle, RGB323, one 256-entry slot per type)
 ```
 
 ## 繪製圖層（Render Layers）
@@ -1045,7 +1054,7 @@ output: src/assets
 
 - 色彩格式預設為 RGB565；玩家 sprite（`Sprites8bit`）與物件 sprite（`ObjAtlas`）則寫成 RGB323 8-bit。
 - 透明一律只來自 PNG alpha（`A==0` -> `00`），沒有黑色色鍵。
-- 物件 atlas：物件 sprite 依 type 順序 0-6 打包成單一 `obj_atlas.mem`（不再一個檔一個），讓 `obj_layer` 用一顆 ROM 讀取。
+- 物件 atlas：物件 sprite 依 type 順序 0-9 打包成單一 `obj_atlas.mem`（不再一個檔一個），讓 `obj_layer` 用一顆 ROM 讀取。
 - 自動尺寸：任意尺寸的來源圖會被縮放（保持長寬比、高品質 bicubic、透明填邊）以符合目標 `N x N` 方框，`N` 取自基底名尾端 `_<N>`（`obj_plus1_16` -> 16、`player_right_32` -> 32）或 `FitSize` 覆寫值。
 - 大圖拉伸：`StretchSize` 內的基底會被縮放到剛好 `W x H`、**不保持長寬比**（接受變形）。`background` -> `80 x 50`（全螢幕背景）。
 - 動畫影格：命名為 `<base>.<N>.png` 的檔案（例如 `player_right_32.0.png`、`player_right_32.1.png`）會依索引順序串接成單一多影格的 `<base>.mem`。

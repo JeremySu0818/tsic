@@ -69,14 +69,14 @@ always @(posedge clk) begin
 		pipe_tuser <= hcursor == 0 && vcursor == 0;
 		pipe_in_band <= in_band;
 
-		if (hcursor >= SVO_HOR_PIXELS - `SVO_CURSOR_STEP) begin
+		if (hcursor == SVO_HOR_PIXELS - 1) begin
 			hcursor <= 0;
-			if (vcursor >= SVO_VER_PIXELS - `SVO_CURSOR_STEP)
+			if (vcursor == SVO_VER_PIXELS - 1)
 				vcursor <= 0;
 			else
-				vcursor <= vcursor + `SVO_CURSOR_STEP;
+				vcursor <= vcursor + 1;
 		end else begin
-			hcursor <= hcursor + `SVO_CURSOR_STEP;
+			hcursor <= hcursor + 1;
 		end
 	end
 end

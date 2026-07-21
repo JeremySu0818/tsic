@@ -372,16 +372,16 @@ always @(posedge clk) begin
 		vcursor <= 0;
 	end else if (fire) begin
 		if (in_axis_tuser[0]) begin
-			hcursor <= `SVO_CURSOR_STEP;
+			hcursor <= 1;
 			vcursor <= 0;
-		end else if (hcursor >= SVO_HOR_PIXELS - `SVO_CURSOR_STEP) begin
+		end else if (hcursor == SVO_HOR_PIXELS - 1) begin
 			hcursor <= 0;
-			if (vcursor >= SVO_VER_PIXELS - `SVO_CURSOR_STEP)
+			if (vcursor == SVO_VER_PIXELS - 1)
 				vcursor <= 0;
 			else
-				vcursor <= vcursor + `SVO_CURSOR_STEP;
+				vcursor <= vcursor + 1;
 		end else begin
-			hcursor <= hcursor + `SVO_CURSOR_STEP;
+			hcursor <= hcursor + 1;
 		end
 	end
 end

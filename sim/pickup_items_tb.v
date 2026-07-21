@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "game/game_defs.vh"
 
 module pickup_items_tb;
 reg clk = 0;
@@ -18,6 +19,9 @@ wire [7:0] obj_valid_bus;
 wire [79:0] obj_xpos_bus;
 wire [79:0] obj_ypos_bus;
 wire [31:0] obj_type_bus;
+wire turtle_valid;
+wire [9:0] turtle_x;
+wire turtle_dir;
 wire [7:0] timer;
 wire [9:0] score;
 wire [11:0] timer_bcd;
@@ -33,6 +37,7 @@ wire [7:0] combo;
 wire [7:0] combo_bcd;
 wire [1:0] difficulty_level;
 wire [1:0] hit_feedback;
+integer min_jump_y;
 
 always #5 clk = ~clk;
 
@@ -47,6 +52,7 @@ game_ctrl #(
 	.player_dir(player_dir), .obj_valid_bus(obj_valid_bus),
 	.obj_xpos_bus(obj_xpos_bus),
 	.obj_ypos_bus(obj_ypos_bus), .obj_type_bus(obj_type_bus),
+	.turtle_valid(turtle_valid), .turtle_x(turtle_x), .turtle_dir(turtle_dir),
 	.timer(timer), .score(score), .timer_bcd(timer_bcd),
 	.score_bcd(score_bcd), .high_score_bcd(high_score_bcd),
 	.skill_charge(skill_charge), .skill_timer(skill_timer),
@@ -72,7 +78,7 @@ task place_item;
 		dut.obj_type[0] = item_type;
 		dut.obj_xpos[0] = 64 + lane * 32;
 		dut.obj_xspeed[0] = 0;
-		dut.obj_ypos[0] = 208;
+		dut.obj_ypos[0] = `PLAYER_GROUND_Y;
 		dut.spawn_cnt = 100;
 	end
 endtask
@@ -97,6 +103,19 @@ initial begin
 	btn_start = 0;
 	@(posedge clk); #1;
 	check_result(game_state == 1, "game enters play state");
+
+	// The raised launch speed reaches at least 127 pixels above ground.
+	btn_jump = 1;
+	pulse_frame();
+	btn_jump = 0;
+	min_jump_y = player_y;
+	repeat (12) begin
+		pulse_frame();
+		if (player_y < min_jump_y) min_jump_y = player_y;
+	end
+	check_result(min_jump_y <= `PLAYER_GROUND_Y - 10'd127,
+		"higher jump reaches the intended apex");
+	dut.player_y = `PLAYER_GROUND_Y; dut.jump_velocity = 0; dut.jump_armed = 1;
 
 	// Magnet is caught at the player's normal position and lasts eight seconds.
 	place_item(4'd7, 4'd7);
@@ -183,7 +202,37 @@ initial begin
 	pulse_frame();
 	check_result(dut.magnet_timer == 8, "mystery copies the magnet effect");
 
-	$display("PASS: magnet and mystery pickup behavior");
+	// Turtle spawn direction and ground sliding come from its independent RNG.
+	dut.turtle_valid = 0; dut.turtle_spawn_cnt = 0;
+	dut.u_turtle_lfsr.rnd = 32'h0000_0001;
+	pulse_frame();
+	check_result(turtle_valid && turtle_dir && turtle_x == 0,
+		"turtle randomly spawns at the left edge facing right");
+	pulse_frame();
+	check_result(turtle_x == 3, "turtle slides three pixels per frame");
+
+	// A high jump clears the ground-height collision box.
+	dut.score = 15; dut.timer = 30; dut.player_y = `PLAYER_GROUND_Y - 10'd112;
+	dut.turtle_x = player_x;
+	pulse_frame();
+	check_result(score == 15 && timer == 30 && turtle_valid,
+		"jumping above the turtle avoids its penalty");
+	dut.player_y = `PLAYER_GROUND_Y;
+
+	// The sliding turtle always deducts 10 points and 10 seconds, then despawns.
+	dut.score = 15; dut.timer = 30; dut.combo = 6;
+	dut.turtle_valid = 1; dut.turtle_x = player_x;
+	pulse_frame();
+	check_result(score == 5 && timer == 20 && combo == 0 && !turtle_valid,
+		"turtle deducts score and time, resets combo, and despawns");
+
+	dut.score = 4; dut.timer = 8;
+	dut.turtle_valid = 1; dut.turtle_x = player_x;
+	pulse_frame();
+	check_result(score == 0 && timer == 0 && game_over,
+		"turtle penalties clamp at zero and end the game");
+
+	$display("PASS: pickup, magnet, mystery, and sliding turtle behavior");
 	$finish;
 end
 endmodule

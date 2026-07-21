@@ -1,5 +1,368 @@
 `timescale 1ns / 1ps
-`include "game/game_defs.vh"
+
+module pickup_items_tb;
+reg clk = 0;
+reg resetn = 0;
+reg frame_tick = 0;
+reg btn_left = 0;
+reg btn_right = 0;
+reg btn_start = 0;
+reg btn_skill = 0;
+reg btn_jump = 0;
+
+wire [9:0] player_x;
+wire [9:0] player_y;
+wire [5:0] player_speed;
+wire player_dir;
+wire [7:0] obj_valid_bus;
+wire [79:0] obj_xpos_bus;
+wire [79:0] obj_ypos_bus;
+wire [31:0] obj_type_bus;
+wire turtle_valid;
+wire [9:0] turtle_x;
+wire turtle_dir;
+wire [7:0] timer;
+wire [9:0] score;
+wire [11:0] timer_bcd;
+wire [11:0] score_bcd;
+wire [11:0] high_score_bcd;
+wire [2:0] skill_charge;
+wire [7:0] skill_timer;
+wire skill_on;
+wire magnet_on;
+wire game_over;
+wire [1:0] game_state;
+wire [7:0] combo;
+wire [7:0] combo_bcd;
+wire [1:0] difficulty_level;
+wire [1:0] hit_feedback;
+integer min_jump_y;
+
+always #5 clk = ~clk;
+
+game_ctrl #(
+	.MAX_OBJ(8),
+	.OBJ_TYPE_BITS(4)
+) dut (
+	.clk(clk), .resetn(resetn), .frame_tick(frame_tick),
+	.btn_left(btn_left), .btn_right(btn_right), .btn_start(btn_start),
+	.btn_skill(btn_skill), .btn_jump(btn_jump),
+	.player_x(player_x), .player_y(player_y), .player_speed(player_speed),
+	.player_dir(player_dir), .obj_valid_bus(obj_valid_bus),
+	.obj_xpos_bus(obj_xpos_bus),
+	.obj_ypos_bus(obj_ypos_bus), .obj_type_bus(obj_type_bus),
+	.turtle_valid(turtle_valid), .turtle_x(turtle_x), .turtle_dir(turtle_dir),
+	.timer(timer), .score(score), .timer_bcd(timer_bcd),
+	.score_bcd(score_bcd), .high_score_bcd(high_score_bcd),
+	.skill_charge(skill_charge), .skill_timer(skill_timer),
+	.skill_on(skill_on), .magnet_on(magnet_on), .game_over(game_over),
+	.game_state(game_state), .combo(combo), .combo_bcd(combo_bcd),
+	.difficulty_level(difficulty_level), .hit_feedback(hit_feedback)
+);
+
+task pulse_frame;
+	begin
+		frame_tick = 1;
+		@(posedge clk); #1;
+		frame_tick = 0;
+		@(posedge clk); #1;
+	end
+endtask
+
+task place_item;
+	input [3:0] item_type;
+	input [3:0] lane;
+	begin
+		dut.obj_count = 1;
+		dut.obj_type[0] = item_type;
+		dut.obj_xpos[0] = 64 + lane * 32;
+		dut.obj_xspeed[0] = 0;
+		dut.obj_ypos[0] = 208;
+		dut.spawn_cnt = 100;
+	end
+endtask
+
+task check_result;
+	input condition;
+	input [8*80-1:0] message;
+	begin
+		if (!condition) begin
+			$display("FAIL: %0s", message);
+			$fatal(1);
+		end
+	end
+endtask
+
+initial begin
+	repeat (3) @(posedge clk);
+	resetn = 1;
+	@(posedge clk);
+	btn_start = 1;
+	@(posedge clk); #1;
+	btn_start = 0;
+	@(posedge clk); #1;
+	check_result(game_state == 1, "game enters play state");
+	$display("Ground y=%0d", player_y);
+
+	// The raised launch speed reaches at least 118 pixels above ground.
+	btn_jump = 1;
+	pulse_frame();
+	$display("After launch y=%0d velocity=%0d", player_y, dut.jump_velocity);
+	btn_jump = 0;
+	min_jump_y = player_y;
+	repeat (12) begin
+		pulse_frame();
+		$display("Jump y=%0d velocity=%0d next=%0d", player_y, dut.jump_velocity, dut.jump_next_y);
+		if (player_y < min_jump_y) min_jump_y = player_y;
+	end
+	$display("Jump apex y=%0d", min_jump_y);
+	check_result(min_jump_y <= 90, "higher jump reaches the intended apex");
+	dut.player_y = 208; dut.jump_velocity = 0; dut.jump_armed = 1;
+
+	// Magnet is caught at the player's normal position and lasts eight seconds.
+	place_item(4'd7, 4'd7);
+	pulse_frame();
+	check_result(magnet_on && dut.magnet_timer == 8, "magnet activates for eight seconds");
+
+	// Lane 4 is outside the normal player box but inside the 96-pixel magnet scope.
+	place_item(4'd0, 4'd4);
+	dut.obj_ypos[0] = 240;
+	pulse_frame();
+	check_result(dut.obj_xpos[0] > 192 && dut.obj_xspeed[0] == 1 &&
+		dut.obj_ypos[0] > 240,
+		"nearby coin accelerates horizontally while continuing to fall");
+	repeat (20) pulse_frame();
+	check_result(score == 1 && dut.obj_count == 0,
+		"scoped coin remains catchable and reaches the player");
+
+	place_item(4'd0, 4'd11);
+	dut.obj_ypos[0] = 240;
+	pulse_frame();
+	check_result(dut.obj_xpos[0] < 416 && dut.obj_xspeed[0] == 1,
+		"coin on the right accelerates left toward the player");
+	repeat (20) pulse_frame();
+	check_result(score == 2 && dut.obj_count == 0,
+		"right-side scoped coin also reaches the player");
+
+	// The same expanded range must not collect hazards or non-score pickups.
+	place_item(4'd3, 4'd4);
+	pulse_frame();
+	check_result(score == 2 && dut.obj_count == 1 && dut.obj_xpos[0] == 192,
+		"magnet leaves nearby negative items alone");
+
+	dut.obj_count = 0;
+	dut.frame_cnt = 59;
+	pulse_frame();
+	check_result(dut.magnet_timer == 7, "magnet timer counts down once per second");
+
+	// Exercise all eight object effects copied by the mystery pickup.
+	dut.score = 0; dut.combo = 0; dut.timer = 60; dut.frame_cnt = 0;
+	dut.u_event_lfsr.rnd = 32'h0000_0000;
+	place_item(4'd8, 4'd7);
+	pulse_frame();
+	check_result(score == 1, "mystery copies the +1 effect");
+
+	dut.score = 0; dut.combo = 0;
+	dut.u_event_lfsr.rnd = 32'h0000_0001;
+	place_item(4'd8, 4'd7);
+	pulse_frame();
+	check_result(score == 3, "mystery copies the +3 effect");
+
+	dut.score = 0; dut.combo = 0;
+	dut.u_event_lfsr.rnd = 32'h0000_0002;
+	place_item(4'd8, 4'd7);
+	pulse_frame();
+	check_result(score == 5, "mystery copies the +5 effect");
+
+	dut.score = 10; dut.combo = 0;
+	dut.u_event_lfsr.rnd = 32'h0000_0003;
+	place_item(4'd8, 4'd7);
+	pulse_frame();
+	check_result(score == 7, "mystery copies the -3 effect");
+
+	dut.score = 10; dut.combo = 0;
+	dut.u_event_lfsr.rnd = 32'h0000_0004;
+	place_item(4'd8, 4'd7);
+	pulse_frame();
+	check_result(score == 5, "mystery copies the -5 effect");
+
+	dut.timer = 60;
+	dut.u_event_lfsr.rnd = 32'h0000_0005;
+	place_item(4'd8, 4'd7);
+	pulse_frame();
+	check_result(timer == 63, "mystery copies the time effect");
+
+	dut.skill_charge = 0;
+	dut.u_event_lfsr.rnd = 32'h0000_0006;
+	place_item(4'd8, 4'd7);
+	pulse_frame();
+	check_result(skill_charge == 1, "mystery copies the charge effect");
+
+	dut.magnet_timer = 0;
+	dut.u_event_lfsr.rnd = 32'h0000_0007;
+	place_item(4'd8, 4'd7);
+	pulse_frame();
+	check_result(dut.magnet_timer == 8, "mystery copies the magnet effect");
+
+	// Turtle spawn direction and ground sliding come from its independent RNG.
+	dut.turtle_valid = 0; dut.turtle_spawn_cnt = 0;
+	dut.u_turtle_lfsr.rnd = 32'h0000_0001;
+	pulse_frame();
+	check_result(turtle_valid && turtle_dir && turtle_x == 0,
+		"turtle randomly spawns at the left edge facing right");
+	pulse_frame();
+	check_result(turtle_x == 3, "turtle slides three pixels per frame");
+
+	// A high jump clears the ground-height collision box.
+	dut.score = 15; dut.timer = 30; dut.player_y = 10'd160;
+	dut.turtle_x = player_x;
+	pulse_frame();
+	check_result(score == 15 && timer == 30 && turtle_valid,
+		"jumping above the turtle avoids its penalty");
+	dut.player_y = 10'd208;
+
+	// The sliding turtle always deducts 10 points and 10 seconds, then despawns.
+	dut.score = 15; dut.timer = 30; dut.combo = 6;
+	dut.turtle_valid = 1; dut.turtle_x = player_x;
+	pulse_frame();
+	check_result(score == 5 && timer == 20 && combo == 0 && !turtle_valid,
+		"turtle deducts score and time, resets combo, and despawns");
+
+	dut.score = 4; dut.timer = 8;
+	dut.turtle_valid = 1; dut.turtle_x = player_x;
+	pulse_frame();
+	check_result(score == 0 && timer == 0 && game_over,
+		"turtle penalties clamp at zero and end the game");
+
+	$display("PASS: pickup, magnet, mystery, and sliding turtle behavior");
+	$finish;
+end
+endmodule
+`timescale 1ns / 1ps
+
+module bin2bcd #(
+	parameter BIN_BITS = 10
+) (
+	input [BIN_BITS-1:0] bin,
+	output reg [11:0] bcd
+);
+
+integer i;
+reg [BIN_BITS+12-1:0] shift;
+
+always @(*) begin
+	shift = 0;
+	shift[BIN_BITS-1:0] = bin;
+
+	for (i = 0; i < BIN_BITS; i = i + 1) begin
+		if (shift[BIN_BITS + 3 : BIN_BITS] >= 4'd5)
+			shift[BIN_BITS + 3 : BIN_BITS] =
+				shift[BIN_BITS + 3 : BIN_BITS] + 4'd3;
+
+		if (shift[BIN_BITS + 7 : BIN_BITS + 4] >= 4'd5)
+			shift[BIN_BITS + 7 : BIN_BITS + 4] =
+				shift[BIN_BITS + 7 : BIN_BITS + 4] + 4'd3;
+
+		if (shift[BIN_BITS + 11 : BIN_BITS + 8] >= 4'd5)
+			shift[BIN_BITS + 11 : BIN_BITS + 8] =
+				shift[BIN_BITS + 11 : BIN_BITS + 8] + 4'd3;
+
+		shift = shift << 1;
+	end
+
+	bcd = shift[BIN_BITS + 11 : BIN_BITS];
+end
+
+endmodule
+`timescale 1ns / 1ps
+
+module fifo #(
+	parameter WIDTH = 10,
+	parameter DEPTH = 4,
+	parameter ADDR_W = $clog2(DEPTH)
+) (
+	input wire clk,
+	input wire resetn,
+
+	input wire wr_en,
+	input wire [WIDTH-1:0] wr_data,
+	output wire full,
+
+	input wire rd_en,
+	output wire [WIDTH-1:0] rd_data,
+	output wire empty,
+
+	output wire [ADDR_W:0] level
+);
+reg [WIDTH-1:0] mem [0:DEPTH-1];
+
+reg [ADDR_W-1:0] wr_ptr;
+reg [ADDR_W-1:0] rd_ptr;
+reg [ADDR_W:0] count;
+
+wire do_wr = wr_en && !full;
+wire do_rd = rd_en && !empty;
+
+assign full  = (count == DEPTH);
+assign empty = (count == 0);
+assign level = count;
+
+assign rd_data = mem[rd_ptr];
+
+always @(posedge clk) begin
+	if (!resetn) begin
+		wr_ptr <= 0;
+		rd_ptr <= 0;
+		count  <= 0;
+	end else begin
+		if (do_wr) begin
+			mem[wr_ptr] <= wr_data;
+			wr_ptr <= wr_ptr + 1;
+		end
+
+		if (do_rd) begin
+			rd_ptr <= rd_ptr + 1;
+		end
+
+		case ({do_wr, do_rd})
+			2'b10: count <= count + 1;
+			2'b01: count <= count - 1;
+			default: count <= count;
+		endcase
+	end
+end
+endmodule
+`timescale 1ns / 1ps
+
+module lfsr32 #(
+	parameter [31:0] SEED = 32'hACE1_1234
+) (
+	input wire clk,
+	input wire resetn,
+	input wire en,
+	output reg [31:0] rnd
+);
+wire feedback = rnd[31] ^ rnd[21] ^ rnd[1] ^ rnd[0];
+
+always @(posedge clk) begin
+	if (!resetn)
+		rnd <= SEED;
+	else if (en)
+		rnd <= {rnd[30:0], feedback};
+end
+endmodule
+`timescale 1ns / 1ps
+
+
+// The foreground grass begins at source row 40 of the 80x50 background tile:
+// 16 + 40 * 8 = screen Y 336.  Sprite Y coordinates refer to their top edge.
+
+
+
+
+
+
+
 
 module game_ctrl #(
 	parameter MAX_OBJ = 16,
@@ -78,14 +441,14 @@ localparam MAGNET_RANGE = 96;
 localparam [2:0] MAGNET_SPEED_MAX = 3'd7;
 
 localparam [9:0] SCREEN_W = 640;
-localparam [9:0] OBJ_GROUND_Y = `GROUND_Y - `OBJ_H;
-localparam [9:0] PLAYER_MAX_X = SCREEN_W - `PLAYER_W;
+localparam [9:0] OBJ_GROUND_Y = 10'd336 - 10'd32;
+localparam [9:0] PLAYER_MAX_X = SCREEN_W - 10'd64;
 // Turtle art is rendered at 4x source size (64x64); its opaque body occupies
 // the lower 24 pixels, so the collision area stays tight to the ground.
 localparam [9:0] TURTLE_RENDER_W = 10'd64;
 localparam [9:0] TURTLE_HIT_H = 10'd24;
 localparam [9:0] TURTLE_MAX_X = SCREEN_W - TURTLE_RENDER_W;
-localparam [9:0] TURTLE_Y = `GROUND_Y - TURTLE_HIT_H;
+localparam [9:0] TURTLE_Y = 10'd336 - TURTLE_HIT_H;
 localparam [3:0] TURTLE_SPEED = 4'd3;
 localparam [7:0] TURTLE_SPAWN_MIN = FPS * 2;
 
@@ -126,7 +489,7 @@ wire sec_tick = game_step && timer_tick;
 wire [2:0] fall_speed_eff = (timer <= 20) ? 3'd4 :
 								 (timer <= 40) ? 3'd3 : 3'd2;
 wire signed [11:0] player_y_signed = $signed({1'b0, player_y});
-wire signed [11:0] player_ground_y_signed = $signed({1'b0, `PLAYER_GROUND_Y});
+wire signed [11:0] player_ground_y_signed = $signed({1'b0, (10'd336 - 10'd64)});
 wire signed [11:0] jump_next_y = player_y_signed + jump_velocity;
 
 assign game_over = state == S_OVER;
@@ -134,9 +497,9 @@ assign game_state = state;
 assign magnet_on = magnet_timer != 0;
 
 wire turtle_hit = game_step && turtle_valid &&
-	player_x < turtle_x + `OBJ_W && player_x + `PLAYER_W > turtle_x &&
-	player_y + PLAYER_HIT_TOP_PAD < TURTLE_Y + `OBJ_H &&
-	player_y + `PLAYER_H > TURTLE_Y;
+	player_x < turtle_x + 10'd32 && player_x + 10'd64 > turtle_x &&
+	player_y + PLAYER_HIT_TOP_PAD < TURTLE_Y + 10'd32 &&
+	player_y + 10'd64 > TURTLE_Y;
 wire turtle_spawn_fire = game_step && !turtle_valid && turtle_spawn_cnt == 0;
 wire [31:0] turtle_rnd;
 
@@ -203,12 +566,12 @@ reg [4:0] hit_idx;
 reg [9:0] hit_obj_x;
 reg hit_in_normal_range;
 wire [10:0] hit_player_t = player_y + PLAYER_HIT_TOP_PAD;
-wire [10:0] hit_player_b = player_y + `PLAYER_H;
+wire [10:0] hit_player_b = player_y + 10'd64;
 
 function [9:0] obj_x;
 	input [LANE_BITS-1:0] lane;
 	input [XOFF_BITS-1:0] xoff;
-	begin obj_x = `GAME_X0 + ({6'd0, lane} << 5) + {6'd0, xoff}; end
+	begin obj_x = 10'd64 + ({6'd0, lane} << 5) + {6'd0, xoff}; end
 endfunction
 
 always @(*) begin
@@ -219,11 +582,11 @@ always @(*) begin
 
 	for (hit_i = 0; hit_i < MAX_OBJ; hit_i = hit_i + 1) begin
 		hit_obj_x = obj_xpos[hit_i];
-		hit_in_normal_range = player_x < hit_obj_x + `OBJ_W &&
-			player_x + `PLAYER_W > hit_obj_x;
+		hit_in_normal_range = player_x < hit_obj_x + 10'd32 &&
+			player_x + 10'd64 > hit_obj_x;
 		if (!hit_valid && hit_i < obj_count &&
 			hit_in_normal_range &&
-			hit_player_t < obj_ypos[hit_i] + `OBJ_H &&
+			hit_player_t < obj_ypos[hit_i] + 10'd32 &&
 			hit_player_b > obj_ypos[hit_i]) begin
 			hit_valid = 1;
 			hit_idx = hit_i[4:0];
@@ -241,9 +604,9 @@ reg [9:0] attract_scope_l;
 reg [9:0] attract_scope_r;
 
 always @(*) begin
-	attract_target_x = player_x + (`PLAYER_W - `OBJ_W) / 2;
+	attract_target_x = player_x + (10'd64 - 10'd32) / 2;
 	attract_scope_l = player_x > MAGNET_RANGE ? player_x - MAGNET_RANGE : 0;
-	attract_scope_r = player_x + `PLAYER_W + MAGNET_RANGE;
+	attract_scope_r = player_x + 10'd64 + MAGNET_RANGE;
 	obj_magnet_scoped = 0;
 
 	for (attract_i = 0; attract_i < MAX_OBJ; attract_i = attract_i + 1) begin
@@ -253,7 +616,7 @@ always @(*) begin
 
 		if (magnet_on && attract_i < obj_count &&
 			obj_type[attract_i] <= TYPE_COIN_5 &&
-			obj_xpos[attract_i] + `OBJ_W > attract_scope_l &&
+			obj_xpos[attract_i] + 10'd32 > attract_scope_l &&
 			obj_xpos[attract_i] < attract_scope_r) begin
 			obj_magnet_scoped[attract_i] = 1;
 			if (obj_xspeed[attract_i] < MAGNET_SPEED_MAX)
@@ -429,7 +792,7 @@ integer i;
 always @(posedge clk) begin
 	if (!resetn) begin
 		player_x <= PLAYER_START_X;
-		player_y <= `PLAYER_GROUND_Y;
+		player_y <= (10'd336 - 10'd64);
 		player_speed <= PLAYER_SPEED_START;
 		player_dir <= 1;
 		spawn_period <= SPAWN_PERIOD_FRAMES;
@@ -472,7 +835,7 @@ always @(posedge clk) begin
 				state <= S_PLAY;
 			end else begin
 				player_x <= PLAYER_START_X;
-				player_y <= `PLAYER_GROUND_Y;
+				player_y <= (10'd336 - 10'd64);
 				player_speed <= PLAYER_SPEED_START;
 				player_dir <= 1;
 				jump_velocity <= 0;
@@ -546,20 +909,20 @@ always @(posedge clk) begin
 
 				// One-button jump with gravity. A release rearms the next jump,
 				// preventing bunny-hop repeats while the button is held.
-				if (player_y == `PLAYER_GROUND_Y && btn_jump && jump_armed) begin
+				if (player_y == (10'd336 - 10'd64) && btn_jump && jump_armed) begin
 					jump_velocity <= -7'sd20;
-					player_y <= `PLAYER_GROUND_Y - 10'd20;
+					player_y <= (10'd336 - 10'd64) - 10'd20;
 					jump_armed <= 1'b0;
-				end else if (player_y < `PLAYER_GROUND_Y) begin
+				end else if (player_y < (10'd336 - 10'd64)) begin
 					if (jump_next_y >= player_ground_y_signed) begin
-						player_y <= `PLAYER_GROUND_Y;
+						player_y <= (10'd336 - 10'd64);
 						jump_velocity <= 0;
 					end else if (jump_next_y < 0) begin
 						player_y <= 0;
 						jump_velocity <= jump_velocity + 2;
 					end else begin
 						player_y <= jump_next_y[9:0];
-						jump_velocity <= jump_velocity + 1;
+						jump_velocity <= jump_velocity + 2;
 					end
 				end
 
@@ -690,4 +1053,158 @@ always @(posedge clk) begin
 			skill_charge <= 0;
 	end
 end
+endmodule
+`timescale 1ns / 1ps
+
+module skill_slot #(
+	parameter ENABLE = 0,
+	parameter DURATION = 0,
+	parameter CHARGE_MAX = 5
+)(
+	input clk,
+	input resetn,
+	input sec_tick,
+	input restart,
+	input btn_skill,
+	input [2:0] skill_charge,
+
+	output reg [7:0] skill_timer,
+	output skill_on,
+	output skill_start
+);
+reg btn_q;
+
+assign skill_on = skill_timer != 0;
+assign skill_start = ENABLE && btn_skill && !btn_q &&
+					 skill_charge >= CHARGE_MAX && !skill_on;
+
+always @(posedge clk) begin
+	if (!resetn) begin
+		skill_timer <= 0;
+		btn_q <= 0;
+	end else if (restart) begin
+		skill_timer <= 0;
+		btn_q <= 0;
+	end else begin
+		btn_q <= btn_skill;
+
+		if (skill_start) begin
+			skill_timer <= DURATION;
+		end else if (sec_tick && skill_timer != 0) begin
+			skill_timer <= skill_timer - 1;
+		end
+	end
+end
+
+endmodule
+`timescale 1ns / 1ps
+
+module spawn_postprocess #(
+	parameter LANE_BITS = 4,
+	parameter XOFF_BITS = 4,
+	parameter OBJ_TYPE_BITS = 4
+)(
+	input clk,
+	input resetn,
+	input fire,
+
+	input [LANE_BITS-1:0] raw_lane,
+	input [XOFF_BITS-1:0] raw_xoff,
+	input [OBJ_TYPE_BITS-1:0] raw_type,
+
+	output [LANE_BITS-1:0] out_lane,
+	output [XOFF_BITS-1:0] out_xoff,
+	output [OBJ_TYPE_BITS-1:0] out_type
+);
+// Base branch is pass-through; skill branches can remap type or position here.
+assign out_lane = raw_lane;
+assign out_xoff = raw_xoff;
+assign out_type = raw_type;
+
+endmodule
+`timescale 1ns / 1ps
+
+module spawn_queue #(
+	parameter FIFO_DEPTH = 4,
+	parameter FIFO_ADDR_W = 2,
+	parameter [31:0] POS_SEED = 32'hACE1_1234,
+	parameter [31:0] TYPE_SEED = 32'h1D2C_3B4A
+) (
+	input wire clk,
+	input wire resetn,
+	input wire enable,
+
+	input wire pop,
+	output wire [11:0] spawn_data,
+	output wire empty,
+
+	output wire full,
+	output wire [FIFO_ADDR_W:0] level
+);
+localparam TYPE_COIN_1 = 0;
+localparam TYPE_COIN_3 = 1;
+localparam TYPE_COIN_5 = 2;
+localparam TYPE_MINUS3 = 3;
+localparam TYPE_MINUS5 = 4;
+localparam TYPE_TIME = 5;
+localparam TYPE_CHARGE = 6;
+localparam TYPE_MAGNET = 7;
+localparam TYPE_MYSTERY = 8;
+
+wire [31:0] pos_rnd;
+wire [31:0] type_rnd;
+wire [3:0] cand_lane = pos_rnd[3:0];
+wire [3:0] cand_xoff = pos_rnd[7:4];
+wire [6:0] cand_pct  = type_rnd[6:0];
+reg [3:0] cand_type;
+
+wire cand_valid = cand_pct < 100;
+wire cand_next = enable && !full;
+wire fifo_wr_en = cand_next && cand_valid;
+wire [11:0] fifo_wr_data = {cand_lane, cand_xoff, cand_type};
+
+always @(*) begin
+	     if (cand_pct < 19) cand_type = TYPE_COIN_1;
+	else if (cand_pct < 38) cand_type = TYPE_COIN_3;
+	else if (cand_pct < 51) cand_type = TYPE_COIN_5;
+	else if (cand_pct < 69) cand_type = TYPE_MINUS3;
+	else if (cand_pct < 83) cand_type = TYPE_MINUS5;
+	else if (cand_pct < 88) cand_type = TYPE_TIME;
+	else if (cand_pct < 93) cand_type = TYPE_CHARGE;
+	else if (cand_pct < 95) cand_type = TYPE_MAGNET;
+	else                    cand_type = TYPE_MYSTERY;
+end
+
+lfsr32 #(
+	.SEED(POS_SEED)
+) u_pos_lfsr (
+	.clk(clk),
+	.resetn(resetn),
+	.en(cand_next),
+	.rnd(pos_rnd)
+);
+
+lfsr32 #(
+	.SEED(TYPE_SEED)
+) u_type_lfsr (
+	.clk(clk),
+	.resetn(resetn),
+	.en(cand_next),
+	.rnd(type_rnd)
+);
+
+fifo #(
+	.WIDTH(12),
+	.DEPTH(FIFO_DEPTH)
+) u_spawn_fifo (
+	.clk(clk),
+	.resetn(resetn),
+	.wr_en(fifo_wr_en),
+	.wr_data(fifo_wr_data),
+	.full(full),
+	.rd_en(pop),
+	.rd_data(spawn_data),
+	.empty(empty),
+	.level(level)
+);
 endmodule

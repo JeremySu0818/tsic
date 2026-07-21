@@ -57,6 +57,9 @@ wire [MAX_OBJ              -1:0] obj_valid_bus;
 wire [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_xpos_bus;
 wire [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_ypos_bus;
 wire [MAX_OBJ*OBJ_TYPE_BITS-1:0] obj_type_bus;
+wire turtle_valid;
+wire [9:0] turtle_x;
+wire turtle_dir;
 wire [7:0] timer;
 wire [9:0] score;
 wire [11:0] timer_bcd;
@@ -104,6 +107,9 @@ game_ctrl #(
 	.obj_xpos_bus(obj_xpos_bus),
 	.obj_ypos_bus(obj_ypos_bus),
 	.obj_type_bus(obj_type_bus),
+	.turtle_valid(turtle_valid),
+	.turtle_x(turtle_x),
+	.turtle_dir(turtle_dir),
 
 	.timer(timer),
 	.score(score),
@@ -154,6 +160,9 @@ obj_layer #(
 	.obj_xpos_bus(obj_xpos_bus),
 	.obj_ypos_bus(obj_ypos_bus),
 	.obj_type_bus(obj_type_bus),
+	.turtle_valid(turtle_valid),
+	.turtle_x(turtle_x),
+	.turtle_dir(turtle_dir),
 
 	.in_axis_tvalid(bg_tvalid),
 	.in_axis_tready(bg_tready),

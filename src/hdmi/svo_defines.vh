@@ -2,12 +2,6 @@
 
 `define SVO_XYBITS 14
 
-`ifdef RTL_SIM_FAST
-`define SVO_CURSOR_STEP 8
-`else
-`define SVO_CURSOR_STEP 1
-`endif
-
 `define SVO_DEFAULT_PARAMS parameter \
     SVO_MODE             =  "640x480", \
     SVO_FRAMERATE        =  60, \

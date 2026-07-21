@@ -23,6 +23,9 @@ module obj_layer #(
 	input [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_xpos_bus,
 	input [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_ypos_bus,
 	input [MAX_OBJ*OBJ_TYPE_BITS-1:0] obj_type_bus,
+	input turtle_valid,
+	input [9:0] turtle_x,
+	input turtle_dir,
 
 	// input stream from previous layer
 	input in_axis_tvalid,
@@ -42,7 +45,7 @@ localparam PLAYER_SRC_BITS = 5;
 localparam PLAYER_SRC_ADDR_WIDTH = 11;         // {frame(1), src_y(5), src_x(5)} -> 2-frame walk sheet
 
 localparam OBJ_ATLAS_ADDR_WIDTH = 12;      // {type(4), src_y(4), src_x(4)}
-localparam OBJ_ATLAS_DEPTH = 4096;         // 16 type slots x 256, 9 used
+localparam OBJ_ATLAS_DEPTH = 4096;         // 16 type slots x 256, 10 used
 localparam [7:0] TRANSPARENT_VAL = 8'h00;
 
 reg [`SVO_XYBITS-1:0] hcursor;
@@ -64,6 +67,8 @@ reg obj_hit;
 reg [OBJ_TYPE_BITS-1:0] obj_type_now;
 reg [4:0] obj_local_x;
 reg [4:0] obj_local_y;
+reg [3:0] turtle_src_x;
+reg [3:0] turtle_src_y;
 reg [9:0] scan_obj_x;
 reg [9:0] scan_obj_ypos;
 reg [9:0] scan_local_x;
@@ -74,6 +79,8 @@ always @(*) begin
 	obj_type_now = 0;
 	obj_local_x = 0;
 	obj_local_y = 0;
+	turtle_src_x = 0;
+	turtle_src_y = 0;
 	scan_obj_x = 0;
 	scan_obj_ypos = 0;
 	scan_local_x = 0;
@@ -95,11 +102,23 @@ always @(*) begin
 			obj_local_y = scan_local_y[4:0];
 		end
 	end
+
+	// The turtle shares atlas slot 9 and scales its 16x16 source art by 4x.
+	if (!obj_hit && turtle_valid &&
+		pixel_x >= turtle_x && pixel_x < turtle_x + 10'd64 &&
+		pixel_y >= `GROUND_Y - 10'd64 && pixel_y < `GROUND_Y) begin
+		scan_local_x = pixel_x - turtle_x;
+		scan_local_y = pixel_y - (`GROUND_Y - 10'd64);
+		obj_hit = 1;
+		obj_type_now = 4'd9;
+		turtle_src_x = turtle_dir ? scan_local_x[5:2] : (4'd15 - scan_local_x[5:2]);
+		turtle_src_y = scan_local_y[5:2];
+	end
 end
 
 // 16x16 -> 32x32 scaling by replicating pixels
-wire [3:0] obj_src_x = obj_local_x[4:1];
-wire [3:0] obj_src_y = obj_local_y[4:1];
+wire [3:0] obj_src_x = obj_type_now == 4'd9 ? turtle_src_x : obj_local_x[4:1];
+wire [3:0] obj_src_y = obj_type_now == 4'd9 ? turtle_src_y : obj_local_y[4:1];
 // One atlas ROM holds every object sprite; the type picks its 256-entry slot, so
 // no output mux is needed -- the registered read is already the selected pixel.
 wire [OBJ_ATLAS_ADDR_WIDTH-1:0] obj_atlas_addr = {obj_type_now, obj_src_y, obj_src_x};
@@ -176,22 +195,22 @@ always @(posedge clk) begin
 		vcursor <= 0;
 	end else if (fire) begin
 		if (in_axis_tuser[0]) begin
-			hcursor <= `SVO_CURSOR_STEP;
+			hcursor <= 1;
 			vcursor <= 0;
-		end else if (hcursor >= SVO_HOR_PIXELS - `SVO_CURSOR_STEP) begin
+		end else if (hcursor == SVO_HOR_PIXELS - 1) begin
 			hcursor <= 0;
-			if (vcursor >= SVO_VER_PIXELS - `SVO_CURSOR_STEP)
+			if (vcursor == SVO_VER_PIXELS - 1)
 				vcursor <= 0;
 			else
-				vcursor <= vcursor + `SVO_CURSOR_STEP;
+				vcursor <= vcursor + 1;
 		end else begin
-			hcursor <= hcursor + `SVO_CURSOR_STEP;
+			hcursor <= hcursor + 1;
 		end
 	end
 end
 
 // Single object atlas ROM (RGB323): 16 type slots x 256 entries, addressed by
-// {type, src_y, src_x}. Slots 0-8 are populated by obj_atlas.mem.
+// {type, src_y, src_x}. Slots 0-9 are populated by obj_atlas.mem.
 rom #(
 	.DATA_WIDTH(8),
 	.ADDR_WIDTH(OBJ_ATLAS_ADDR_WIDTH),
