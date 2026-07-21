@@ -13,6 +13,10 @@ module ui_layer #(
 	input [11:0] high_score_bcd,
 	input [2:0] skill_charge,
 	input [7:0] skill_timer,
+	input [7:0] combo_bcd,
+	input [1:0] difficulty_level,
+	input [1:0] hit_feedback,
+	input [1:0] game_state,
 	input game_over,
 	input btn_left,
 	input btn_right,
@@ -51,6 +55,8 @@ localparam SKILL_TIME_Y = 452;
 localparam SMALL_DIGIT_W = 12;
 localparam SMALL_DIGIT_H = 24;
 localparam SMALL_DIGIT_GAP = 3;
+localparam COMBO_X = 170;
+localparam COMBO_Y = 452;
 
 // 6x12 base glyph shared by all digits (see src/assets/font.mem)
 localparam FONT_W = 6;
@@ -63,6 +69,10 @@ localparam [23:0] HIGH_SCORE_RGB = 24'hE8E8E8;
 localparam [23:0] INDICATOR_RGB  = 24'h20FF40;
 localparam [23:0] CHARGE_RGB     = 24'hFFEA20;
 localparam [23:0] SKILL_TIME_RGB = 24'hFFEA20;
+localparam [23:0] COMBO_RGB      = 24'hFF9020;
+localparam [23:0] GOOD_RGB       = 24'h20FF40;
+localparam [23:0] BAD_RGB        = 24'h3030FF;
+localparam [23:0] BONUS_RGB      = 24'h20EAFF;
 
 reg [`SVO_XYBITS-1:0] hcursor, vcursor;
 reg [4:0] blink_cnt;
@@ -88,6 +98,8 @@ wire skill_timer_ge_10 = skill_timer >= 10;
 wire [3:0] skill_timer_d1 = skill_timer_ge_10 ? 1 : 0;
 wire [3:0] skill_timer_d0 = skill_timer_ge_10 ? skill_timer - 10 : skill_timer[3:0];
 wire skill_small_on = SKILL_ENABLE && (skill_timer != 0);
+wire [3:0] combo_d1 = combo_bcd[7:4];
+wire [3:0] combo_d0 = combo_bcd[3:0];
 
 // For a big-digit field at base X, report which of the 3 columns the current
 // pixel hits: {hit(1), col(2), local_x(5)}.
@@ -155,12 +167,12 @@ endfunction
 // value, colour field, and the 6x12 source coordinate (screen coords scaled
 // down by replication: big = >>2 for 24x48, small = >>1 for 12x24).
 reg        glyph_hit;
-reg [1:0]  field;        // 0=timer 1=score 2=high 3=skill(small)
+reg [2:0]  field;        // 0=timer 1=score 2=high 3=skill 4=combo
 reg [3:0]  digit;
 reg [2:0]  src_x;
 reg [3:0]  src_y;
 
-reg [7:0]  tcol, scol, hcol, kcol;
+reg [7:0]  tcol, scol, hcol, kcol, ccol;
 reg [4:0]  lx_sel;
 reg [`SVO_XYBITS-1:0] ly_big, ly_small;
 
@@ -178,6 +190,7 @@ always @(*) begin
 	scol = big_col(pixel_x, SCORE_X);
 	hcol = big_col(pixel_x, HIGH_SCORE_X);
 	kcol = small_col(pixel_x, SKILL_TIME_X);
+	ccol = small_col(pixel_x, COMBO_X);
 
 	if (pixel_y >= DIGIT_Y && pixel_y < DIGIT_Y + DIGIT_H) begin
 		ly_big = pixel_y - DIGIT_Y;
@@ -227,6 +240,19 @@ always @(*) begin
 			src_y = ly_small[4:1];
 		end
 	end
+
+	if (!glyph_hit && game_state == 2'd1 && pixel_y >= COMBO_Y && pixel_y < COMBO_Y + SMALL_DIGIT_H) begin
+		ly_small = pixel_y - COMBO_Y;
+		if (ccol[7]) begin
+			glyph_hit = 1'b1; field = 3'd4; lx_sel = ccol[4:0];
+			case (ccol[6:5])
+				2'd0: digit = combo_d1;
+				default: digit = combo_d0;
+			endcase
+			src_x = lx_sel[3:1];
+			src_y = ly_small[4:1];
+		end
+	end
 end
 
 wire [7:0] font_addr = {digit, src_y};
@@ -251,16 +277,25 @@ wire left_indicator = btn_left && pixel_y >= UI_TOP + 8 && pixel_y < UI_TOP + 56
 						pixel_x >= 4 && pixel_x < 20;
 wire right_indicator = btn_right && pixel_y >= UI_TOP + 8 && pixel_y < UI_TOP + 56 &&
 						pixel_x >= SVO_HOR_PIXELS - 20 && pixel_x < SVO_HOR_PIXELS - 4;
+wire feedback_border = hit_feedback != 0 &&
+	(pixel_x < 8 || pixel_x >= SVO_HOR_PIXELS - 8 ||
+	 pixel_y < 8 || (pixel_y >= UI_TOP - 8 && pixel_y < UI_TOP));
+wire difficulty_pixel = game_state == 2'd1 && pixel_y >= 4 && pixel_y < 12 &&
+	pixel_x >= 292 && pixel_x < 292 + ((difficulty_level + 1) * 18);
+wire [23:0] feedback_rgb = (hit_feedback == 1) ? GOOD_RGB :
+	(hit_feedback == 2) ? BAD_RGB : BONUS_RGB;
 
 // 1-stage pipeline to line up with the registered font ROM read (1 cycle).
 reg glyph_hit_d;
-reg [1:0] field_d;
+reg [2:0] field_d;
 reg [2:0] src_x_d;
 reg [SVO_BITS_PER_PIXEL-1:0] bg_d;
 reg [0:0] tuser_d;
 reg tvalid_d;
 reg score_on_d;
 reg left_ind_d, right_ind_d, charge_d, in_ui_d;
+reg feedback_border_d, difficulty_d;
+reg [23:0] feedback_rgb_d;
 
 assign in_axis_tready  = out_axis_tready;
 assign out_axis_tvalid = tvalid_d;
@@ -269,12 +304,15 @@ assign out_axis_tuser  = tuser_d;
 wire glyph_on = glyph_hit_d & font_row[3'd5 - src_x_d];   // MSB = leftmost column
 
 assign out_axis_tdata =
+	feedback_border_d                       ? feedback_rgb_d :
 	left_ind_d                              ? INDICATOR_RGB :
 	right_ind_d                             ? INDICATOR_RGB :
 	(glyph_on && field_d == 2'd0)               ? TIMER_RGB :
 	(glyph_on && field_d == 2'd1 && score_on_d) ? SCORE_RGB :
 	(glyph_on && field_d == 2'd2)               ? HIGH_SCORE_RGB :
 	(glyph_on && field_d == 2'd3)               ? SKILL_TIME_RGB :
+	(glyph_on && field_d == 3'd4)               ? COMBO_RGB :
+	difficulty_d                            ? COMBO_RGB :
 	charge_d                                ? CHARGE_RGB :
 	in_ui_d                                 ? UI_BG_RGB :
 											  bg_d;
@@ -292,6 +330,9 @@ always @(posedge clk) begin
 		right_ind_d <= 0;
 		charge_d <= 0;
 		in_ui_d <= 0;
+		feedback_border_d <= 0;
+		difficulty_d <= 0;
+		feedback_rgb_d <= 0;
 	end else if (out_axis_tready) begin
 		tvalid_d <= in_axis_tvalid;
 		if (fire) begin
@@ -305,6 +346,9 @@ always @(posedge clk) begin
 			right_ind_d <= right_indicator;
 			charge_d <= charge_pixel;
 			in_ui_d <= in_ui;
+			feedback_border_d <= feedback_border;
+			difficulty_d <= difficulty_pixel;
+			feedback_rgb_d <= feedback_rgb;
 		end
 	end
 end
@@ -334,16 +378,16 @@ always @(posedge clk) begin
 		vcursor <= 0;
 	end else if (fire) begin
 		if (in_axis_tuser[0]) begin
-			hcursor <= 1;
+			hcursor <= `SVO_CURSOR_STEP;
 			vcursor <= 0;
-		end else if (hcursor == SVO_HOR_PIXELS - 1) begin
+		end else if (hcursor >= SVO_HOR_PIXELS - `SVO_CURSOR_STEP) begin
 			hcursor <= 0;
-			if (vcursor == SVO_VER_PIXELS - 1)
+			if (vcursor >= SVO_VER_PIXELS - `SVO_CURSOR_STEP)
 				vcursor <= 0;
 			else
-				vcursor <= vcursor + 1;
+				vcursor <= vcursor + `SVO_CURSOR_STEP;
 		end else begin
-			hcursor <= hcursor + 1;
+			hcursor <= hcursor + `SVO_CURSOR_STEP;
 		end
 	end
 end

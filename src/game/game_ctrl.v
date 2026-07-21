@@ -5,7 +5,7 @@ module game_ctrl #(
 	parameter MAX_OBJ = 16,
 	parameter LANE_BITS = 4,
 	parameter XOFF_BITS = 4,
-	parameter OBJ_TYPE_BITS = 3,
+	parameter OBJ_TYPE_BITS = 4,
 	parameter OBJ_Y_BITS = 10,
 	parameter FALL_SPEED = 2,
 	parameter SPAWN_PERIOD_FRAMES = 24,
@@ -27,14 +27,15 @@ module game_ctrl #(
 	input btn_right,
 	input btn_start,
 	input btn_skill,
+	input btn_jump,
 
 	output reg [9:0] player_x,
+	output reg [9:0] player_y,
 	output reg [5:0] player_speed,
 	output reg player_dir,
 
 	output reg [MAX_OBJ              -1:0] obj_valid_bus,
-	output reg [MAX_OBJ*LANE_BITS    -1:0] obj_lane_bus,
-	output reg [MAX_OBJ*XOFF_BITS    -1:0] obj_xoff_bus,
+	output reg [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_xpos_bus,
 	output reg [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_ypos_bus,
 	output reg [MAX_OBJ*OBJ_TYPE_BITS-1:0] obj_type_bus,
 
@@ -46,10 +47,18 @@ module game_ctrl #(
 	output reg [2:0] skill_charge,
 	output [7:0] skill_timer,
 	output skill_on,
-	output game_over
+	output magnet_on,
+	output game_over,
+	output [1:0] game_state,
+	output reg [7:0] combo,
+	output [7:0] combo_bcd,
+	output reg [1:0] difficulty_level,
+	output reg [1:0] hit_feedback
 );
+localparam S_TITLE = 0;
 localparam S_PLAY = 1;
 localparam S_OVER = 2;
+localparam S_PAUSE = 3;
 
 localparam TYPE_COIN_1 = 0;
 localparam TYPE_COIN_3 = 1;
@@ -58,15 +67,21 @@ localparam TYPE_MINUS3 = 3;
 localparam TYPE_MINUS5 = 4;
 localparam TYPE_TIME = 5;
 localparam TYPE_CHARGE = 6;
+localparam TYPE_MAGNET = 7;
+localparam TYPE_MYSTERY = 8;
+
+localparam MAGNET_DURATION = 8;
+localparam MAGNET_RANGE = 96;
+localparam [2:0] MAGNET_SPEED_MAX = 3'd7;
 
 localparam [9:0] SCREEN_W = 640;
-localparam [9:0] OBJ_GROUND_Y = `UI_TOP - `OBJ_H;
+localparam [9:0] OBJ_GROUND_Y = `GROUND_Y - `OBJ_H;
 localparam [9:0] PLAYER_MAX_X = SCREEN_W - `PLAYER_W;
 
-reg [LANE_BITS    -1:0] obj_lane [0:MAX_OBJ-1];
-reg [XOFF_BITS    -1:0] obj_xoff [0:MAX_OBJ-1];
+reg [OBJ_Y_BITS   -1:0] obj_xpos [0:MAX_OBJ-1];
 reg [OBJ_TYPE_BITS-1:0] obj_type [0:MAX_OBJ-1];
 reg [OBJ_Y_BITS   -1:0] obj_ypos [0:MAX_OBJ-1];
+reg [2:0] obj_xspeed [0:MAX_OBJ-1];
 reg [4:0] obj_count;
 reg [1:0] state;
 
@@ -74,14 +89,19 @@ reg [7:0] frame_cnt;
 reg [7:0] spawn_cnt;
 reg btn_start_q;
 reg [7:0] spawn_period;
+reg signed [6:0] jump_velocity;
+reg jump_armed;
+reg [3:0] feedback_timer;
+reg [3:0] magnet_timer;
 
 wire btn_start_rise = btn_start && !btn_start_q;
+wire game_restart = btn_start_rise && (state == S_TITLE || state == S_OVER);
 wire skill_start;
 wire skill_btn_active = btn_skill && state == S_PLAY;
 wire can_left = player_x > player_speed;
 wire can_right = player_x + player_speed < PLAYER_MAX_X;
 
-wire [10:0] spawn_data;
+wire [11:0] spawn_data;
 wire spawn_fifo_empty;
 wire obj_has_room = obj_count < MAX_OBJ;
 wire remove_valid;
@@ -91,8 +111,12 @@ wire spawn_pop = frame_tick && state == S_PLAY &&
 wire game_step = frame_tick && state == S_PLAY;
 wire timer_tick = frame_cnt == FPS - 1;
 wire sec_tick = game_step && timer_tick;
+wire [2:0] fall_speed_eff = (timer <= 20) ? 3'd4 :
+							 (timer <= 40) ? 3'd3 : 3'd2;
 
 assign game_over = state == S_OVER;
+assign game_state = state;
+assign magnet_on = magnet_timer != 0;
 
 skill_slot #(
 	.ENABLE(SKILL_ENABLE),
@@ -102,7 +126,7 @@ skill_slot #(
 	.clk(clk),
 	.resetn(resetn),
 	.sec_tick(sec_tick),
-	.restart(btn_start_rise),
+	.restart(game_restart),
 	.btn_skill(skill_btn_active),
 	.skill_charge(skill_charge),
 	.skill_timer(skill_timer),
@@ -119,9 +143,9 @@ spawn_queue u_spawn_queue (
 	.empty(spawn_fifo_empty)
 );
 
-wire [LANE_BITS-1:0] spawn_lane_raw = spawn_data[10:7];
-wire [XOFF_BITS-1:0] spawn_xoff_raw = spawn_data[6:3];
-wire [OBJ_TYPE_BITS-1:0] spawn_type_raw = spawn_data[2:0];
+wire [LANE_BITS-1:0] spawn_lane_raw = spawn_data[11:8];
+wire [XOFF_BITS-1:0] spawn_xoff_raw = spawn_data[7:4];
+wire [OBJ_TYPE_BITS-1:0] spawn_type_raw = spawn_data[3:0];
 wire [LANE_BITS-1:0] spawn_lane;
 wire [XOFF_BITS-1:0] spawn_xoff;
 wire [OBJ_TYPE_BITS-1:0] spawn_type;
@@ -146,10 +170,9 @@ integer hit_i;
 reg hit_valid;
 reg [4:0] hit_idx;
 reg [9:0] hit_obj_x;
-wire [10:0] hit_player_l = player_x;
-wire [10:0] hit_player_r = player_x + `PLAYER_W;
-wire [10:0] hit_player_t = `PLAYER_Y + PLAYER_HIT_TOP_PAD;
-wire [10:0] hit_player_b = `PLAYER_Y + `PLAYER_H;
+reg hit_in_normal_range;
+wire [10:0] hit_player_t = player_y + PLAYER_HIT_TOP_PAD;
+wire [10:0] hit_player_b = player_y + `PLAYER_H;
 
 function [9:0] obj_x;
 	input [LANE_BITS-1:0] lane;
@@ -161,12 +184,14 @@ always @(*) begin
 	hit_valid = 0;
 	hit_idx = 0;
 	hit_obj_x = 0;
+	hit_in_normal_range = 0;
 
 	for (hit_i = 0; hit_i < MAX_OBJ; hit_i = hit_i + 1) begin
-		hit_obj_x = obj_x(obj_lane[hit_i], obj_xoff[hit_i]);
+		hit_obj_x = obj_xpos[hit_i];
+		hit_in_normal_range = player_x < hit_obj_x + `OBJ_W &&
+			player_x + `PLAYER_W > hit_obj_x;
 		if (!hit_valid && hit_i < obj_count &&
-			hit_player_l < hit_obj_x + `OBJ_W &&
-			hit_player_r > hit_obj_x &&
+			hit_in_normal_range &&
 			hit_player_t < obj_ypos[hit_i] + `OBJ_H &&
 			hit_player_b > obj_ypos[hit_i]) begin
 			hit_valid = 1;
@@ -175,7 +200,70 @@ always @(*) begin
 	end
 end
 
-wire ground_valid = (obj_count != 0) && (obj_ypos[0] >= OBJ_GROUND_Y);
+integer attract_i;
+reg [OBJ_Y_BITS-1:0] obj_xpos_step [0:MAX_OBJ-1];
+reg [OBJ_Y_BITS-1:0] obj_ypos_step [0:MAX_OBJ-1];
+reg [2:0] obj_xspeed_step [0:MAX_OBJ-1];
+reg [MAX_OBJ-1:0] obj_magnet_scoped;
+reg [9:0] attract_target_x;
+reg [9:0] attract_scope_l;
+reg [9:0] attract_scope_r;
+
+always @(*) begin
+	attract_target_x = player_x + (`PLAYER_W - `OBJ_W) / 2;
+	attract_scope_l = player_x > MAGNET_RANGE ? player_x - MAGNET_RANGE : 0;
+	attract_scope_r = player_x + `PLAYER_W + MAGNET_RANGE;
+	obj_magnet_scoped = 0;
+
+	for (attract_i = 0; attract_i < MAX_OBJ; attract_i = attract_i + 1) begin
+		obj_xpos_step[attract_i] = obj_xpos[attract_i];
+		obj_ypos_step[attract_i] = obj_ypos[attract_i] + fall_speed_eff;
+		obj_xspeed_step[attract_i] = 0;
+
+		if (magnet_on && attract_i < obj_count &&
+			obj_type[attract_i] <= TYPE_COIN_5 &&
+			obj_xpos[attract_i] + `OBJ_W > attract_scope_l &&
+			obj_xpos[attract_i] < attract_scope_r) begin
+			obj_magnet_scoped[attract_i] = 1;
+			if (obj_xspeed[attract_i] < MAGNET_SPEED_MAX)
+				obj_xspeed_step[attract_i] = obj_xspeed[attract_i] + 1'b1;
+			else
+				obj_xspeed_step[attract_i] = MAGNET_SPEED_MAX;
+
+			if (obj_xpos[attract_i] < attract_target_x) begin
+				if (obj_xpos[attract_i] + obj_xspeed_step[attract_i] >= attract_target_x)
+					obj_xpos_step[attract_i] = attract_target_x[OBJ_Y_BITS-1:0];
+				else
+					obj_xpos_step[attract_i] = obj_xpos[attract_i] + obj_xspeed_step[attract_i];
+			end else if (obj_xpos[attract_i] > attract_target_x) begin
+				if (obj_xpos[attract_i] <= attract_target_x + obj_xspeed_step[attract_i])
+					obj_xpos_step[attract_i] = attract_target_x[OBJ_Y_BITS-1:0];
+				else
+					obj_xpos_step[attract_i] = obj_xpos[attract_i] - obj_xspeed_step[attract_i];
+			end
+
+			// Keep the normal downward fall. At ground height, perform the final
+			// horizontal pull so the next frame catches the reward normally.
+			if (obj_ypos[attract_i] + fall_speed_eff >= OBJ_GROUND_Y)
+				obj_xpos_step[attract_i] = attract_target_x;
+		end
+	end
+end
+
+wire mystery_hit = game_step && hit_valid && obj_type[hit_idx] == TYPE_MYSTERY;
+wire [31:0] event_rnd;
+
+lfsr32 #(
+	.SEED(32'hC0DE_1234)
+) u_event_lfsr (
+	.clk(clk),
+	.resetn(resetn),
+	.en(mystery_hit),
+	.rnd(event_rnd)
+);
+
+wire ground_valid = (obj_count != 0) && (obj_ypos[0] >= OBJ_GROUND_Y) &&
+	!obj_magnet_scoped[0];
 assign remove_valid = hit_valid || ground_valid;
 wire [4:0] remove_idx = hit_valid ? hit_idx : 0;
 
@@ -185,6 +273,7 @@ reg [2:0] next_charge;
 reg signed [5:0] score_delta;
 reg signed [6:0] score_delta_eff;
 reg signed [10:0] score_sum;
+reg [7:0] next_combo;
 wire [9:0] final_score = hit_valid ? next_score : score;
 always @(*) begin
 	next_score = score;
@@ -193,6 +282,7 @@ always @(*) begin
 	score_delta = 0;
 	score_delta_eff = 0;
 	score_sum = score;
+	next_combo = combo;
 
 	if (hit_valid) begin
 		case (obj_type[hit_idx])
@@ -205,13 +295,45 @@ always @(*) begin
 			TYPE_CHARGE:
 				if (skill_charge < SKILL_CHARGE_MAX)
 					next_charge = skill_charge + 1;
+			TYPE_MAGNET: begin
+				next_timer = timer;
+			end
+			TYPE_MYSTERY:
+				case (event_rnd[2:0])
+					3'd0: score_delta = 1;
+					3'd1: score_delta = 3;
+					3'd2: score_delta = 5;
+					3'd3: score_delta = -3;
+					3'd4: score_delta = -5;
+					3'd5: next_timer = timer + TIME_BONUS;
+					3'd6:
+						if (skill_charge < SKILL_CHARGE_MAX)
+							next_charge = skill_charge + 1;
+					default: next_timer = timer;
+				endcase
 			default: begin
 				next_timer = timer;
 				next_charge = skill_charge;
 			end
 		endcase
 
-		score_delta_eff = score_delta;
+		// The fire skill converts hazards into rewards. Combo then multiplies
+		// positive catches: x2 at 5, x3 at 10.
+		if (skill_on && score_delta < 0)
+			score_delta_eff = -score_delta;
+		else
+			score_delta_eff = score_delta;
+
+		if (score_delta_eff > 0) begin
+			if (combo >= 10)
+				score_delta_eff = score_delta_eff * 3;
+			else if (combo >= 5)
+				score_delta_eff = score_delta_eff * 2;
+			if (combo < 99)
+				next_combo = combo + 1;
+		end else if (score_delta_eff < 0) begin
+			next_combo = 0;
+		end
 		score_sum = $signed({1'b0, score}) + score_delta_eff;
 		if (score_sum < 0)
 			next_score = 0;
@@ -239,20 +361,28 @@ bin2bcd #(
 	.bcd(timer_bcd)
 );
 
+wire [11:0] combo_bcd_full;
+assign combo_bcd = combo_bcd_full[7:0];
+
+bin2bcd #(
+	.BIN_BITS(8)
+) u_combo_bcd (
+	.bin(combo),
+	.bcd(combo_bcd_full)
+);
+
 integer pack_i;
 
 always @(*) begin
 	obj_valid_bus = 0;
-	obj_lane_bus = 0;
-	obj_xoff_bus = 0;
+	obj_xpos_bus = 0;
 	obj_ypos_bus = 0;
 	obj_type_bus = 0;
 
 	for (pack_i = 0; pack_i < MAX_OBJ; pack_i = pack_i + 1) begin
 		if (pack_i < obj_count) begin
 			obj_valid_bus[pack_i] = 1;
-			obj_lane_bus[pack_i*LANE_BITS     +: LANE_BITS]     = obj_lane[pack_i];
-			obj_xoff_bus[pack_i*XOFF_BITS     +: XOFF_BITS]     = obj_xoff[pack_i];
+			obj_xpos_bus[pack_i*OBJ_Y_BITS    +: OBJ_Y_BITS]    = obj_xpos[pack_i];
 			obj_ypos_bus[pack_i*OBJ_Y_BITS    +: OBJ_Y_BITS]    = obj_ypos[pack_i];
 			obj_type_bus[pack_i*OBJ_TYPE_BITS +: OBJ_TYPE_BITS] = obj_type[pack_i];
 		end
@@ -264,6 +394,7 @@ integer i;
 always @(posedge clk) begin
 	if (!resetn) begin
 		player_x <= PLAYER_START_X;
+		player_y <= `PLAYER_GROUND_Y;
 		player_speed <= PLAYER_SPEED_START;
 		player_dir <= 1;
 		spawn_period <= SPAWN_PERIOD_FRAMES;
@@ -272,41 +403,102 @@ always @(posedge clk) begin
 		score <= 0;
 		high_score_bcd <= 12'h000;
 		skill_charge <= 0;
-		state <= S_PLAY;
+		state <= S_TITLE;
 		frame_cnt <= 0;
 		spawn_cnt <= SPAWN_PERIOD_FRAMES;
 		btn_start_q <= 0;
+		jump_velocity <= 0;
+		jump_armed <= 1;
+		combo <= 0;
+		difficulty_level <= 0;
+		hit_feedback <= 0;
+		feedback_timer <= 0;
+		magnet_timer <= 0;
 
 		for (i = 0; i < MAX_OBJ; i = i + 1) begin
-			obj_lane[i] <= 0;
-			obj_xoff[i] <= 0;
+			obj_xpos[i] <= 0;
 			obj_ypos[i] <= 0;
 			obj_type[i] <= 0;
+			obj_xspeed[i] <= 0;
 		end
 	end else begin
 		btn_start_q <= btn_start;
+		if (!btn_jump)
+			jump_armed <= 1'b1;
 
 		if (btn_start_rise) begin
-			player_x <= PLAYER_START_X;
-			player_speed <= PLAYER_SPEED_START;
-			player_dir <= 1;
-			spawn_period <= SPAWN_PERIOD_FRAMES;
-			obj_count <= 0;
-			timer <= TIMER_START;
-			score <= 0;
-			skill_charge <= 0;
-			state <= S_PLAY;
-			frame_cnt <= 0;
-			spawn_cnt <= SPAWN_PERIOD_FRAMES;
+			if (state == S_PLAY) begin
+				state <= S_PAUSE;
+			end else if (state == S_PAUSE) begin
+				state <= S_PLAY;
+			end else begin
+				player_x <= PLAYER_START_X;
+				player_y <= `PLAYER_GROUND_Y;
+				player_speed <= PLAYER_SPEED_START;
+				player_dir <= 1;
+				jump_velocity <= 0;
+				jump_armed <= !btn_jump;
+				spawn_period <= SPAWN_PERIOD_FRAMES;
+				obj_count <= 0;
+				timer <= TIMER_START;
+				score <= 0;
+				combo <= 0;
+				difficulty_level <= 0;
+				hit_feedback <= 0;
+				feedback_timer <= 0;
+				magnet_timer <= 0;
+				skill_charge <= 0;
+				state <= S_PLAY;
+				frame_cnt <= 0;
+				spawn_cnt <= SPAWN_PERIOD_FRAMES;
 
-			for (i = 0; i < MAX_OBJ; i = i + 1) begin
-				obj_lane[i] <= 0;
-				obj_xoff[i] <= 0;
-				obj_ypos[i] <= 0;
-				obj_type[i] <= 0;
+				for (i = 0; i < MAX_OBJ; i = i + 1) begin
+					obj_xpos[i] <= 0;
+					obj_ypos[i] <= 0;
+					obj_type[i] <= 0;
+					obj_xspeed[i] <= 0;
+				end
 			end
 		end else begin
 			if (frame_tick && state == S_PLAY) begin
+				if (sec_tick && magnet_timer != 0)
+					magnet_timer <= magnet_timer - 1'b1;
+				// Three-stage difficulty ramp keeps the last 20 seconds frantic.
+				if (timer <= 20) begin
+					difficulty_level <= 2;
+					spawn_period <= 12;
+				end else if (timer <= 40) begin
+					difficulty_level <= 1;
+					spawn_period <= 18;
+				end else begin
+					difficulty_level <= 0;
+					spawn_period <= SPAWN_PERIOD_FRAMES;
+				end
+
+				// One-button jump with gravity. A release rearms the next jump,
+				// preventing bunny-hop repeats while the button is held.
+				if (player_y == `PLAYER_GROUND_Y && btn_jump && jump_armed) begin
+					jump_velocity <= -7'sd14;
+					player_y <= `PLAYER_GROUND_Y - 10'd14;
+					jump_armed <= 1'b0;
+				end else if (player_y < `PLAYER_GROUND_Y) begin
+					if ($signed({1'b0, player_y}) + jump_velocity >= $signed(`PLAYER_GROUND_Y)) begin
+						player_y <= `PLAYER_GROUND_Y;
+						jump_velocity <= 0;
+					end else if ($signed({1'b0, player_y}) + jump_velocity < 0) begin
+						player_y <= 0;
+						jump_velocity <= jump_velocity + 2;
+					end else begin
+						player_y <= $signed({1'b0, player_y}) + jump_velocity;
+						jump_velocity <= jump_velocity + 2;
+					end
+				end
+
+				if (feedback_timer != 0) begin
+					feedback_timer <= feedback_timer - 1'b1;
+					if (feedback_timer == 1)
+						hit_feedback <= 0;
+				end
 
 				// Direction control
 				if (btn_left && !btn_right) begin
@@ -328,6 +520,23 @@ always @(posedge clk) begin
 					score <= next_score;
 					timer <= next_timer;
 					skill_charge <= next_charge;
+					combo <= next_combo;
+					feedback_timer <= 8;
+					if (obj_type[hit_idx] == TYPE_MAGNET ||
+						(obj_type[hit_idx] == TYPE_MYSTERY && event_rnd[2:0] == 3'd7))
+						magnet_timer <= MAGNET_DURATION;
+					if (obj_type[hit_idx] == TYPE_TIME || obj_type[hit_idx] == TYPE_CHARGE ||
+						obj_type[hit_idx] == TYPE_MAGNET || obj_type[hit_idx] == TYPE_MYSTERY)
+						hit_feedback <= 3;
+					else if (score_delta_eff > 0)
+						hit_feedback <= 1;
+					else
+						hit_feedback <= 2;
+				end else if (ground_valid &&
+					(obj_type[0] <= TYPE_COIN_5 || obj_type[0] == TYPE_TIME ||
+					 obj_type[0] == TYPE_CHARGE || obj_type[0] == TYPE_MAGNET ||
+					 obj_type[0] == TYPE_MYSTERY)) begin
+					combo <= 0;
 				end
 
 				// Object falling and spawning
@@ -335,36 +544,41 @@ always @(posedge clk) begin
 					for (i = 0; i < MAX_OBJ-1; i = i + 1) begin
 						if (i < obj_count - 1) begin
 							if (i < remove_idx) begin
-								obj_ypos[i] <= obj_ypos[i] + FALL_SPEED;
+								obj_xpos[i] <= obj_xpos_step[i];
+								obj_xspeed[i] <= obj_xspeed_step[i];
+								obj_ypos[i] <= obj_ypos_step[i];
 							end else begin
-								obj_lane[i] <= obj_lane[i+1];
-								obj_xoff[i] <= obj_xoff[i+1];
+								obj_xpos[i] <= obj_xpos_step[i+1];
 								obj_type[i] <= obj_type[i+1];
-								obj_ypos[i] <= obj_ypos[i+1] + FALL_SPEED;
+								obj_xspeed[i] <= obj_xspeed_step[i+1];
+								obj_ypos[i] <= obj_ypos_step[i+1];
 							end
 						end
 					end
 
 					if (spawn_pop) begin
-						obj_lane[obj_count - 1] <= spawn_lane;
-						obj_xoff[obj_count - 1] <= spawn_xoff;
+						obj_xpos[obj_count - 1] <= obj_x(spawn_lane, spawn_xoff);
 						obj_type[obj_count - 1] <= spawn_type;
 						obj_ypos[obj_count - 1] <= 0;
+						obj_xspeed[obj_count - 1] <= 0;
 						obj_count <= obj_count;
 					end else begin
 						obj_count <= obj_count - 1;
 					end
 				end else begin
 					for (i = 0; i < MAX_OBJ; i = i + 1) begin
-						if (i < obj_count)
-							obj_ypos[i] <= obj_ypos[i] + FALL_SPEED;
+						if (i < obj_count) begin
+							obj_xpos[i] <= obj_xpos_step[i];
+							obj_xspeed[i] <= obj_xspeed_step[i];
+							obj_ypos[i] <= obj_ypos_step[i];
+						end
 					end
 
 					if (spawn_pop) begin
-						obj_lane[obj_count] <= spawn_lane;
-						obj_xoff[obj_count] <= spawn_xoff;
+						obj_xpos[obj_count] <= obj_x(spawn_lane, spawn_xoff);
 						obj_type[obj_count] <= spawn_type;
 						obj_ypos[obj_count] <= 0;
+						obj_xspeed[obj_count] <= 0;
 						obj_count <= obj_count + 1;
 					end
 				end

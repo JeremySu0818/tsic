@@ -19,16 +19,19 @@ module game_core #(
 	input btn_right,
 	input btn_start,
 	input btn_skill,
+	input btn_jump,
 
 	output out_axis_tvalid,
 	input out_axis_tready,
 	output [SVO_BITS_PER_PIXEL-1:0] out_axis_tdata,
 	output [0:0] out_axis_tuser
 );
-localparam MAX_OBJ = 8;
+// Seven active slots keep the full attraction/collision pipeline within the
+// GW1NSR-4C placement limit while preserving the normal spawn cadence.
+localparam MAX_OBJ = 7;
 localparam LANE_BITS = 4;
 localparam XOFF_BITS = 4;
-localparam OBJ_TYPE_BITS = 3;
+localparam OBJ_TYPE_BITS = 4;
 localparam OBJ_Y_BITS = 10;
 
 wire bg_tvalid;
@@ -48,10 +51,10 @@ wire [0:0] ui_tuser;
 
 wire frame_tick;
 wire [9:0] player_x;
+wire [9:0] player_y;
 wire player_dir;
 wire [MAX_OBJ              -1:0] obj_valid_bus;
-wire [MAX_OBJ*LANE_BITS    -1:0] obj_lane_bus;
-wire [MAX_OBJ*XOFF_BITS    -1:0] obj_xoff_bus;
+wire [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_xpos_bus;
 wire [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_ypos_bus;
 wire [MAX_OBJ*OBJ_TYPE_BITS-1:0] obj_type_bus;
 wire [7:0] timer;
@@ -62,7 +65,14 @@ wire [11:0] high_score_bcd;
 wire [2:0] skill_charge;
 wire [7:0] skill_timer;
 wire skill_on;
+wire magnet_on;
 wire game_over;
+wire [1:0] game_state;
+wire [7:0] combo;
+wire [7:0] combo_bcd;
+wire [1:0] difficulty_level;
+wire [1:0] hit_feedback;
+wire overlay_show = game_state != 2'd1;
 
 // Frame start signal
 assign frame_tick = bg_tvalid && bg_tready && bg_tuser[0];
@@ -84,13 +94,14 @@ game_ctrl #(
 	.btn_right(btn_right),
 	.btn_start(btn_start),
 	.btn_skill(btn_skill),
+	.btn_jump(btn_jump),
 
 	.player_x(player_x),
+	.player_y(player_y),
 	.player_dir(player_dir),
 
 	.obj_valid_bus(obj_valid_bus),
-	.obj_lane_bus(obj_lane_bus),
-	.obj_xoff_bus(obj_xoff_bus),
+	.obj_xpos_bus(obj_xpos_bus),
 	.obj_ypos_bus(obj_ypos_bus),
 	.obj_type_bus(obj_type_bus),
 
@@ -102,7 +113,13 @@ game_ctrl #(
 	.skill_charge(skill_charge),
 	.skill_timer(skill_timer),
 	.skill_on(skill_on),
-	.game_over(game_over)
+	.magnet_on(magnet_on),
+	.game_over(game_over),
+	.game_state(game_state),
+	.combo(combo),
+	.combo_bcd(combo_bcd),
+	.difficulty_level(difficulty_level),
+	.hit_feedback(hit_feedback)
 );
 
 bg_layer #(
@@ -130,11 +147,11 @@ obj_layer #(
 	.resetn(resetn),
 
 	.player_x(player_x),
+	.player_y(player_y),
 	.player_dir(player_dir),
-	.skill_on(skill_on),
+	.skill_on(skill_on || magnet_on),
 	.obj_valid_bus(obj_valid_bus),
-	.obj_lane_bus(obj_lane_bus),
-	.obj_xoff_bus(obj_xoff_bus),
+	.obj_xpos_bus(obj_xpos_bus),
 	.obj_ypos_bus(obj_ypos_bus),
 	.obj_type_bus(obj_type_bus),
 
@@ -161,6 +178,10 @@ ui_layer #(
 	.high_score_bcd(high_score_bcd),
 	.skill_charge(skill_charge),
 	.skill_timer(skill_timer),
+	.combo_bcd(combo_bcd),
+	.difficulty_level(difficulty_level),
+	.hit_feedback(hit_feedback),
+	.game_state(game_state),
 	.game_over(game_over),
 	.btn_left(btn_left),
 	.btn_right(btn_right),
@@ -182,7 +203,8 @@ res_overlay #(
 	.clk(clk),
 	.resetn(resetn),
 
-	.show(game_over),
+	.show(overlay_show),
+	.game_state(game_state),
 	.score_bcd(score_bcd),
 	.high_score_bcd(high_score_bcd),
 

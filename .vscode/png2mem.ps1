@@ -3,10 +3,11 @@ param(
     [string]$OutputDir = "src\assets",
     # basenames stored as RGB323 (8-bit) instead of RGB565 (16-bit)
     [string[]]$Sprites8bit = @("player_right_32", "player_skill_32"),
-    # Object sprites, in gameplay type order 0..6, packed (RGB323) into one atlas
+    # Object sprites, in gameplay type order 0..8, packed (RGB323) into one atlas
     # ROM instead of one .mem each. Written to $ObjAtlasFile; not emitted singly.
-    [string[]]$ObjAtlas = @("obj_plus1_16", "obj_plus3_16", "obj_plus5_16", "obj_minus3_16", "obj_minus5_16", "obj_time_16", "obj_charge_16"),
+    [string[]]$ObjAtlas = @("obj_plus1_16", "obj_plus3_16", "obj_plus5_16", "obj_minus3_16", "obj_minus5_16", "obj_time_16", "obj_charge_16", "obj_magnet_16", "obj_mystery_16"),
     [string]$ObjAtlasFile = "obj_atlas.mem",
+    [int]$ObjAtlasSlots = 16,
     # Target sprite box size (N x N) is taken from the trailing "_<N>" in the
     # base name (e.g. obj_plus1_16 -> 16, player_right_32 -> 32); any-size source
     # art is scaled to fit (aspect-preserved, transparent pad). This map is an
@@ -197,7 +198,7 @@ foreach ($base in ($groups.Keys | Sort-Object)) {
     Write-Host "$base.{$(($frames | ForEach-Object { $_.Idx }) -join ',')} -> $base.mem ($($frames.Count) frames, $fmt)"
 }
 
-# Object atlas: concatenate the object sprites (RGB323) in type order 0..6 into a
+# Object atlas: concatenate the object sprites (RGB323) in type order 0..8 into a
 # single .mem so obj_layer can read them from one ROM addressed by {type, y, x}.
 if ($ObjAtlas.Count -gt 0) {
     $atlasPath = Join-Path $OutputPath $ObjAtlasFile
@@ -209,12 +210,19 @@ if ($ObjAtlas.Count -gt 0) {
             $bmp = Load-Sprite $png.FullName $base
             try { Write-Pixels $bmp $writer $true } finally { $bmp.Dispose() }
         }
+        # Pad unused 4-bit type slots with transparent pixels so simulation and
+        # synthesis initialize the complete atlas ROM.
+        for ($slot = $ObjAtlas.Count; $slot -lt $ObjAtlasSlots; $slot++) {
+            for ($pixel = 0; $pixel -lt 256; $pixel++) {
+                $writer.WriteLine("00")
+            }
+        }
     }
     finally {
         $writer.Dispose()
     }
     $convertedCount++
-    Write-Host "$($ObjAtlas -join ',') -> $ObjAtlasFile ($($ObjAtlas.Count) sprites, RGB323 atlas)"
+    Write-Host "$($ObjAtlas -join ',') -> $ObjAtlasFile ($($ObjAtlas.Count) sprites, $ObjAtlasSlots slots, RGB323 atlas)"
 }
 
 Write-Host "Converted $convertedCount item(s)."

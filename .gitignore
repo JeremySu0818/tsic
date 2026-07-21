@@ -2,3 +2,5 @@ impl/
 skills/fs/*.fs
 *.user
 .agents
+sim/build/
+sim/runtime/

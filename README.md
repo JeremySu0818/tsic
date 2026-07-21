@@ -2,6 +2,18 @@
 
 Tang Nano 4K HDMI coin-catching game implemented in Verilog.
 
+## Local board simulator
+
+You can run the real game/render RTL without connecting or programming the board:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\sim\run.ps1
+```
+
+The simulator provides all five button inputs, reset, a 640x480 HDMI pixel-stream
+viewer, and live internal state. See [`sim/README.md`](sim/README.md) for controls,
+scope, and the smoke test. In VS Code, run the `simulate` task.
+
 Open this repository with `hdmi_coin` as the project root. The design keeps button input, game logic, render layers, and HDMI output separated so each part can be developed and explained independently.
 
 ## Pipeline
@@ -120,8 +132,9 @@ Board buttons are active-low at the physical pin and become active-high pressed 
 ```text
 btn_left   pin 13
 btn_right  pin 17
-btn_start  pin 18
+btn_start  pin 15
 btn_skill  pin 16
+btn_jump   pin 18
 ```
 
 Input path:
@@ -143,11 +156,14 @@ raw active-low button
 Current game states in `game_ctrl`:
 
 ```text
+0: title
 1: playing
 2: game over
+3: paused
 ```
 
-Reset starts directly in `playing`. State value `0` is currently unused.
+Reset starts at the title screen. `btn_start` starts, pauses, resumes, or
+restarts the game according to the current state.
 The state register stays inside `game_ctrl`; render layers only receive the simpler `game_over` signal.
 
 `btn_start` restarts the game:
@@ -183,6 +199,8 @@ type 3: -3
 type 4: -5
 type 5: +time
 type 6: charge
+type 7: magnet (8 seconds, accelerates nearby +1/+3/+5 objects toward the player on the X axis up to 7 px/frame while they keep falling)
+type 8: mystery (randomly copies one of the other eight object effects)
 ```
 
 Score clamps to the displayable BCD range, 0 to 999.
@@ -193,8 +211,10 @@ Score clamps to the displayable BCD range, 0 to 999.
 - Source sprite size: 32 x 32
 - Scaling: 2x pixel replication
 - Initial x: 288
-- Fixed y: 352
+- Ground y: 208 (the player sprite's top edge; its feet align with the grass at Y=272)
 - Movement: left / right only
+- `btn_jump` launches a gravity-driven jump; the live Y position is shared by
+  collision and rendering, so airborne catches are real gameplay interactions
 - Default speed: 8 px/frame
 - Skill patches can change the movement block locally.
 - Facing direction uses right-facing source art; left-facing display mirrors the sprite address
@@ -214,25 +234,29 @@ The player ROMs are read as `DATA_WIDTH(8)` and converted to BGR888 by
 
 ### Objects
 
-- Maximum active objects: 16
+- Maximum active objects: 7 in the Tang Nano 4K build (`game_ctrl` remains parameterized)
 - Display size: 32 x 32
 - Source sprite size: 16 x 16
 - Scaling: 2x pixel replication
 - Storage: RGB323 (8-bit); all types share one atlas ROM addressed by `{obj_type, src_y, src_x}`
 - Default fall speed: 2 px/frame
 - Default spawn period: 24 frames
+- Difficulty ramps at 40 and 20 seconds remaining: fall speed 2/3/4 px per
+  frame and spawn period 24/18/12 frames
 - Skill patches can change the spawn counter reload locally.
 
 Object type probability:
 
 ```text
-+1      20%
-+3      20%
-+5      10%
--3      20%
--5      15%
++1      19%
++3      19%
++5      13%
+-3      18%
+-5      14%
 +time    5%
-charge  10%
+charge   5%
+magnet   2%
+mystery  5%
 ```
 
 `spawn_queue` creates raw spawn data. `spawn_postprocess` sits between `spawn_queue` and the object registers. The base version is pass-through, and skill branches can use it to remap object type or position without changing the raw queue.
@@ -315,6 +339,8 @@ Current UI behavior:
 - center score blinks during game over
 - skill charge bar at the bottom, 5 segments
 - skill countdown timer near the charge bar, 2 small digits
+- 2-digit combo counter; positive catches reach x2 at combo 5 and x3 at combo 10
+- three-stage difficulty indicator and green/red/yellow catch-feedback borders
 - digits are drawn from a 6x12 pixel font ROM (`src/assets/font.mem`) scaled by pixel replication
 - timer, score, and high score receive packed BCD digits from `game_ctrl`
 - UI receives `game_over`; it does not depend on the internal state encoding
@@ -555,6 +581,10 @@ Implemented:
 - UI layer with timer, score, high score, and button indicators, using a pixel font ROM
 - game-over result panel (`res_overlay`) with a shared digit+letter font ROM
 - game controller with timer, movement, spawn queue, falling objects, collision, score, and high score update
+- jump physics on a fifth debounced button (pin 16)
+- title/play/pause/game-over state flow
+- combo multipliers, three-stage dynamic difficulty, and catch feedback
+- active fire skill that converts negative score objects into positive points
 - cascaded BCD digit counters for UI timer, score, and high score outputs
 - skill base hooks with common `skill_slot` lifecycle and pass-through `spawn_postprocess`
 - button synchronization and debounce

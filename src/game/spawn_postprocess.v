@@ -3,7 +3,7 @@
 module spawn_postprocess #(
 	parameter LANE_BITS = 4,
 	parameter XOFF_BITS = 4,
-	parameter OBJ_TYPE_BITS = 3
+	parameter OBJ_TYPE_BITS = 4
 )(
 	input clk,
 	input resetn,

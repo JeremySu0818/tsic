@@ -8,6 +8,7 @@ module res_overlay #(
 	input resetn,
 
 	input show,
+	input [1:0] game_state,
 	input [11:0] score_bcd,
 	input [11:0] high_score_bcd,
 
@@ -52,9 +53,12 @@ localparam [9:0] BEST_VAL_Y    = 10'd288;
 // combined-font glyph indices (see .vscode/bitmap2mem.ps1)
 localparam GLYPH_SPACE = 5'd10;
 
-localparam [1:0] TXT_TITLE = 2'd0;
-localparam [1:0] TXT_SCORE = 2'd1;
-localparam [1:0] TXT_BEST  = 2'd2;
+localparam [2:0] TXT_TITLE = 3'd0;
+localparam [2:0] TXT_SCORE = 3'd1;
+localparam [2:0] TXT_BEST  = 3'd2;
+localparam [2:0] TXT_COIN  = 3'd3;
+localparam [2:0] TXT_PAUSE = 3'd4;
+localparam [2:0] TXT_PRESS = 3'd5;
 
 localparam [23:0] COLOR_PANEL  = 24'h000000;
 localparam [23:0] COLOR_BORDER = 24'hFFFFFF;
@@ -94,7 +98,7 @@ endfunction
 
 // Map a text string + char position to a combined-font glyph index.
 function [4:0] text_glyph;
-	input [1:0] tid;
+	input [2:0] tid;
 	input [2:0] idx;
 	begin
 		text_glyph = GLYPH_SPACE;
@@ -122,6 +126,29 @@ function [4:0] text_glyph;
 				1: text_glyph = 5'd13;     // E
 				2: text_glyph = 5'd19;     // S
 				3: text_glyph = 5'd20;     // T
+				default: text_glyph = GLYPH_SPACE;
+			endcase
+			TXT_COIN: case (idx)           // "COIN"
+				0: text_glyph = 5'd12;
+				1: text_glyph = 5'd16;
+				2: text_glyph = 5'd14;
+				3: text_glyph = 5'd23;
+				default: text_glyph = GLYPH_SPACE;
+			endcase
+			TXT_PAUSE: case (idx)          // "PAUSE"
+				0: text_glyph = 5'd17;
+				1: text_glyph = 5'd22;
+				2: text_glyph = 5'd21;
+				3: text_glyph = 5'd19;
+				4: text_glyph = 5'd13;
+				default: text_glyph = GLYPH_SPACE;
+			endcase
+			TXT_PRESS: case (idx)          // "PRESS"
+				0: text_glyph = 5'd17;
+				1: text_glyph = 5'd18;
+				2: text_glyph = 5'd13;
+				3: text_glyph = 5'd19;
+				4: text_glyph = 5'd19;
 				default: text_glyph = GLYPH_SPACE;
 			endcase
 			default: text_glyph = GLYPH_SPACE;
@@ -165,6 +192,8 @@ reg [3:0]  font_y;
 
 reg [8:0]  gc;
 reg [2:0]  ci;
+reg [2:0] title_tid;
+reg [3:0] title_chars;
 
 always @(*) begin
 	glyph_hit = 1'b0;
@@ -174,13 +203,22 @@ always @(*) begin
 	font_y    = 4'd0;
 	gc        = 9'd0;
 	ci        = 3'd0;
+	title_tid = TXT_TITLE;
+	title_chars = 4'd7;
+	if (game_state == 2'd0) begin
+		title_tid = TXT_COIN;
+		title_chars = 4'd4;
+	end else if (game_state == 2'd3) begin
+		title_tid = TXT_PAUSE;
+		title_chars = 4'd5;
+	end
 
 	// Title "TIME UP", scale 4
 	if (pixel_y >= TITLE_Y && pixel_y < TITLE_Y + 48) begin
-		gc = glyph_col(pixel_x, TITLE_X, TITLE_STRIDE, TITLE_GW, 4'd7);
+		gc = glyph_col(pixel_x, TITLE_X, TITLE_STRIDE, TITLE_GW, title_chars);
 		if (gc[8]) begin
 			ci = gc[7:5];
-			glyph = text_glyph(TXT_TITLE, ci);
+			glyph = text_glyph(title_tid, ci);
 			if (glyph != GLYPH_SPACE) begin
 				glyph_hit = 1'b1;
 				is_title  = 1'b1;
@@ -191,7 +229,18 @@ always @(*) begin
 	end
 
 	// Score label "SCORE", scale 2
-	if (!glyph_hit && pixel_y >= SCORE_LABEL_Y && pixel_y < SCORE_LABEL_Y + 24) begin
+	if (!glyph_hit && game_state == 2'd0 && pixel_y >= SCORE_LABEL_Y && pixel_y < SCORE_LABEL_Y + 24) begin
+		gc = glyph_col(pixel_x, SCORE_LABEL_X, LABEL_STRIDE, LABEL_GW, 4'd5);
+		if (gc[8]) begin
+			ci = gc[7:5];
+			glyph = text_glyph(TXT_PRESS, ci);
+			if (glyph != GLYPH_SPACE) begin
+				glyph_hit = 1'b1;
+				font_x = gc[4:0] >> 1;
+				font_y = (pixel_y - SCORE_LABEL_Y) >> 1;
+			end
+		end
+	end else if (!glyph_hit && game_state == 2'd2 && pixel_y >= SCORE_LABEL_Y && pixel_y < SCORE_LABEL_Y + 24) begin
 		gc = glyph_col(pixel_x, SCORE_LABEL_X, LABEL_STRIDE, LABEL_GW, 4'd5);
 		if (gc[8]) begin
 			ci = gc[7:5];
@@ -205,7 +254,7 @@ always @(*) begin
 	end
 
 	// Best label "BEST", scale 2
-	if (!glyph_hit && pixel_y >= BEST_LABEL_Y && pixel_y < BEST_LABEL_Y + 24) begin
+	if (!glyph_hit && game_state == 2'd2 && pixel_y >= BEST_LABEL_Y && pixel_y < BEST_LABEL_Y + 24) begin
 		gc = glyph_col(pixel_x, BEST_LABEL_X, LABEL_STRIDE, LABEL_GW, 4'd4);
 		if (gc[8]) begin
 			ci = gc[7:5];
@@ -219,7 +268,7 @@ always @(*) begin
 	end
 
 	// Score value (3 BCD digits), scale 4
-	if (!glyph_hit && pixel_y >= SCORE_VAL_Y && pixel_y < SCORE_VAL_Y + 48) begin
+	if (!glyph_hit && game_state == 2'd2 && pixel_y >= SCORE_VAL_Y && pixel_y < SCORE_VAL_Y + 48) begin
 		gc = glyph_col(pixel_x, VALUE_X, VAL_STRIDE, VAL_GW, 4'd3);
 		if (gc[8]) begin
 			ci = gc[7:5];
@@ -235,7 +284,7 @@ always @(*) begin
 	end
 
 	// Best value (3 BCD digits), scale 4
-	if (!glyph_hit && pixel_y >= BEST_VAL_Y && pixel_y < BEST_VAL_Y + 48) begin
+	if (!glyph_hit && game_state == 2'd2 && pixel_y >= BEST_VAL_Y && pixel_y < BEST_VAL_Y + 48) begin
 		gc = glyph_col(pixel_x, VALUE_X, VAL_STRIDE, VAL_GW, 4'd3);
 		if (gc[8]) begin
 			ci = gc[7:5];
@@ -323,16 +372,16 @@ always @(posedge clk) begin
 		vcursor <= 0;
 	end else if (fire) begin
 		if (in_axis_tuser[0]) begin
-			hcursor <= 1;
+			hcursor <= `SVO_CURSOR_STEP;
 			vcursor <= 0;
-		end else if (hcursor == SVO_HOR_PIXELS - 1) begin
+		end else if (hcursor >= SVO_HOR_PIXELS - `SVO_CURSOR_STEP) begin
 			hcursor <= 0;
-			if (vcursor == SVO_VER_PIXELS - 1)
+			if (vcursor >= SVO_VER_PIXELS - `SVO_CURSOR_STEP)
 				vcursor <= 0;
 			else
-				vcursor <= vcursor + 1;
+				vcursor <= vcursor + `SVO_CURSOR_STEP;
 		end else begin
-			hcursor <= hcursor + 1;
+			hcursor <= hcursor + `SVO_CURSOR_STEP;
 		end
 	end
 end

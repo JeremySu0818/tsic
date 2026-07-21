@@ -5,6 +5,7 @@ module top (
 	input btn_right,
 	input btn_start,
 	input btn_skill,
+	input btn_jump,
 
 	output tmds_clk_n,
 	output tmds_clk_p,
@@ -22,6 +23,7 @@ wire btn_left_syn, btn_left_deb;
 wire btn_right_syn, btn_right_deb;
 wire btn_start_syn, btn_start_deb;
 wire btn_skill_syn, btn_skill_deb;
+wire btn_jump_syn, btn_jump_deb;
 
 wire game_tvalid;
 wire game_tready;
@@ -74,6 +76,13 @@ ff_sync u_btn_skill_syn (
 	.out(btn_skill_syn)
 );
 
+ff_sync u_btn_jump_syn (
+	.clk(clk_p),
+	.resetn(sys_resetn),
+	.in(btn_jump),
+	.out(btn_jump_syn)
+);
+
 debounce u_btn_left_deb (
 	.clk(clk_p),
 	.resetn(sys_resetn),
@@ -102,6 +111,13 @@ debounce u_btn_skill_deb (
 	.out(btn_skill_deb)
 );
 
+debounce u_btn_jump_deb (
+	.clk(clk_p),
+	.resetn(sys_resetn),
+	.in(btn_jump_syn),
+	.out(btn_jump_deb)
+);
+
 game_core #(
 	.SVO_MODE("640x480V")
 ) u_game_core (
@@ -112,6 +128,7 @@ game_core #(
 	.btn_right(btn_right_deb),
 	.btn_start(btn_start_deb),
 	.btn_skill(btn_skill_deb),
+	.btn_jump(btn_jump_deb),
 
 	.out_axis_tvalid(game_tvalid),
 	.out_axis_tready(game_tready),

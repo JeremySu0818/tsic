@@ -7,7 +7,7 @@ module obj_layer #(
 	parameter MAX_OBJ       = 16,
 	parameter LANE_BITS     = 4,
 	parameter XOFF_BITS     = 4,
-	parameter OBJ_TYPE_BITS = 3,
+	parameter OBJ_TYPE_BITS = 4,
 	parameter OBJ_Y_BITS    = 10
 ) (
 	input clk,
@@ -15,12 +15,12 @@ module obj_layer #(
 
 	// object state from game controller
 	input [9:0] player_x,
+	input [9:0] player_y,
 	input       player_dir,
 	input       skill_on,
 
 	input [MAX_OBJ              -1:0] obj_valid_bus,
-	input [MAX_OBJ*LANE_BITS    -1:0] obj_lane_bus,
-	input [MAX_OBJ*XOFF_BITS    -1:0] obj_xoff_bus,
+	input [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_xpos_bus,
 	input [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_ypos_bus,
 	input [MAX_OBJ*OBJ_TYPE_BITS-1:0] obj_type_bus,
 
@@ -41,8 +41,8 @@ module obj_layer #(
 localparam PLAYER_SRC_BITS = 5;
 localparam PLAYER_SRC_ADDR_WIDTH = 11;         // {frame(1), src_y(5), src_x(5)} -> 2-frame walk sheet
 
-localparam OBJ_ATLAS_ADDR_WIDTH = 11;      // {type(3), src_y(4), src_x(4)}
-localparam OBJ_ATLAS_DEPTH = 2048;         // 8 type slots x 256, 7 used
+localparam OBJ_ATLAS_ADDR_WIDTH = 12;      // {type(4), src_y(4), src_x(4)}
+localparam OBJ_ATLAS_DEPTH = 4096;         // 16 type slots x 256, 9 used
 localparam [7:0] TRANSPARENT_VAL = 8'h00;
 
 reg [`SVO_XYBITS-1:0] hcursor;
@@ -69,12 +69,6 @@ reg [9:0] scan_obj_ypos;
 reg [9:0] scan_local_x;
 reg [9:0] scan_local_y;
 
-function [9:0] obj_x;
-	input [LANE_BITS-1:0] lane;
-	input [XOFF_BITS-1:0] xoff;
-	begin obj_x = `GAME_X0 + ({6'd0, lane} << 5) + {6'd0, xoff}; end
-endfunction
-
 always @(*) begin
 	obj_hit = 0;
 	obj_type_now = 0;
@@ -86,10 +80,7 @@ always @(*) begin
 	scan_local_y = 0;
 
 	for (obj_i = 0; obj_i < MAX_OBJ; obj_i = obj_i + 1) begin
-		scan_obj_x = obj_x(
-			obj_lane_bus[obj_i*LANE_BITS +: LANE_BITS],
-			obj_xoff_bus[obj_i*XOFF_BITS +: XOFF_BITS]
-		);
+		scan_obj_x = obj_xpos_bus[obj_i*OBJ_Y_BITS +: OBJ_Y_BITS];
 		scan_obj_ypos = obj_ypos_bus[obj_i*OBJ_Y_BITS +: OBJ_Y_BITS];
 
 		// AABB hit test
@@ -115,11 +106,11 @@ wire [OBJ_ATLAS_ADDR_WIDTH-1:0] obj_atlas_addr = {obj_type_now, obj_src_y, obj_s
 wire [7:0] obj_rgb;
 
 wire hit_player = pixel_x >= player_x && pixel_x < player_x + `PLAYER_W &&
-				  pixel_y >= `PLAYER_Y && pixel_y < `PLAYER_Y + `PLAYER_H;
+				  pixel_y >= player_y && pixel_y < player_y + `PLAYER_H;
 
 // 32x32 -> 64x64 scaling by replicating pixels
 wire [9:0] player_rel_x = pixel_x - player_x;
-wire [9:0] player_rel_y = pixel_y - `PLAYER_Y;
+wire [9:0] player_rel_y = pixel_y - player_y;
 wire [PLAYER_SRC_BITS-1:0] player_src_x = player_rel_x[5:1];
 wire [PLAYER_SRC_BITS-1:0] player_src_y = player_rel_y[5:1];
 wire [PLAYER_SRC_BITS-1:0] player_addr_x = player_dir ? player_src_x : (5'd31 - player_src_x);
@@ -185,22 +176,22 @@ always @(posedge clk) begin
 		vcursor <= 0;
 	end else if (fire) begin
 		if (in_axis_tuser[0]) begin
-			hcursor <= 1;
+			hcursor <= `SVO_CURSOR_STEP;
 			vcursor <= 0;
-		end else if (hcursor == SVO_HOR_PIXELS - 1) begin
+		end else if (hcursor >= SVO_HOR_PIXELS - `SVO_CURSOR_STEP) begin
 			hcursor <= 0;
-			if (vcursor == SVO_VER_PIXELS - 1)
+			if (vcursor >= SVO_VER_PIXELS - `SVO_CURSOR_STEP)
 				vcursor <= 0;
 			else
-				vcursor <= vcursor + 1;
+				vcursor <= vcursor + `SVO_CURSOR_STEP;
 		end else begin
-			hcursor <= hcursor + 1;
+			hcursor <= hcursor + `SVO_CURSOR_STEP;
 		end
 	end
 end
 
-// Single object atlas ROM (RGB323): 8 type slots x 256 entries, addressed by
-// {type, src_y, src_x}. Only slots 0-6 are populated by obj_atlas.mem.
+// Single object atlas ROM (RGB323): 16 type slots x 256 entries, addressed by
+// {type, src_y, src_x}. Slots 0-8 are populated by obj_atlas.mem.
 rom #(
 	.DATA_WIDTH(8),
 	.ADDR_WIDTH(OBJ_ATLAS_ADDR_WIDTH),
