@@ -3,6 +3,8 @@
 // The foreground grass begins at source row 40 of the 80x50 background tile:
 // 16 + 40 * 8 = screen Y 336.  Sprite Y coordinates refer to their top edge.
 `define GROUND_Y 10'd336
+// Vertical mirror of GROUND_Y inside the 16..415 background image band.
+`define FLIPPED_GROUND_Y 10'd96
 `define OBJ_W 10'd32
 `define OBJ_H 10'd32
 `define PLAYER_W 10'd64

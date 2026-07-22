@@ -18,6 +18,7 @@ module obj_layer #(
 	input [9:0] player_y,
 	input       player_dir,
 	input       skill_on,
+	input       gravity_flip,
 
 	input [MAX_OBJ              -1:0] obj_valid_bus,
 	input [MAX_OBJ*OBJ_Y_BITS   -1:0] obj_xpos_bus,
@@ -108,9 +109,10 @@ always @(*) begin
 	// The turtle shares atlas slot 9 and scales its 16x16 source art by 4x.
 	if (!obj_hit && turtle_valid &&
 		pixel_x >= turtle_x && pixel_x < turtle_x + 10'd64 &&
-		pixel_y >= `GROUND_Y - 10'd64 && pixel_y < `GROUND_Y) begin
+		pixel_y >= (gravity_flip ? `FLIPPED_GROUND_Y : `GROUND_Y - 10'd64) &&
+		pixel_y < (gravity_flip ? `FLIPPED_GROUND_Y + 10'd64 : `GROUND_Y)) begin
 		scan_local_x = pixel_x - turtle_x;
-		scan_local_y = pixel_y - (`GROUND_Y - 10'd64);
+		scan_local_y = pixel_y - (gravity_flip ? `FLIPPED_GROUND_Y : `GROUND_Y - 10'd64);
 		obj_hit = 1;
 		obj_type_now = 4'd9;
 		turtle_src_x = turtle_dir ? scan_local_x[5:2] : (4'd15 - scan_local_x[5:2]);
@@ -120,7 +122,8 @@ end
 
 // 16x16 -> 32x32 scaling by replicating pixels
 wire [3:0] obj_src_x = obj_type_now == 4'd9 ? turtle_src_x : obj_local_x[4:1];
-wire [3:0] obj_src_y = obj_type_now == 4'd9 ? turtle_src_y : obj_local_y[4:1];
+wire [3:0] obj_src_y_base = obj_type_now == 4'd9 ? turtle_src_y : obj_local_y[4:1];
+wire [3:0] obj_src_y = gravity_flip ? 4'd15 - obj_src_y_base : obj_src_y_base;
 // One atlas ROM holds every object sprite; the type picks its 256-entry slot, so
 // no output mux is needed -- the registered read is already the selected pixel.
 wire [OBJ_ATLAS_ADDR_WIDTH-1:0] obj_atlas_addr = {obj_type_now, obj_src_y, obj_src_x};
@@ -133,7 +136,9 @@ wire hit_player = pixel_x >= player_x && pixel_x < player_x + `PLAYER_W &&
 wire [9:0] player_rel_x = pixel_x - player_x;
 wire [9:0] player_rel_y = pixel_y - player_y;
 wire [PLAYER_SRC_BITS-1:0] player_src_x = player_rel_x[5:1];
-wire [PLAYER_SRC_BITS-1:0] player_src_y = player_rel_y[5:1];
+wire [PLAYER_SRC_BITS-1:0] player_src_y_normal = player_rel_y[5:1];
+wire [PLAYER_SRC_BITS-1:0] player_src_y = gravity_flip ?
+	5'd31 - player_src_y_normal : player_src_y_normal;
 wire [PLAYER_SRC_BITS-1:0] player_addr_x = player_dir ? player_src_x : (5'd31 - player_src_x);
 // walk animation: alternate between 2 frames, flipping every 16px of travel
 wire player_frame = player_x[6];

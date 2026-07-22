@@ -31,6 +31,8 @@ wire [2:0] skill_charge;
 wire [7:0] skill_timer;
 wire skill_on;
 wire magnet_on;
+wire gravity_flip_on;
+wire coin_rain_on;
 wire game_over;
 wire [1:0] game_state;
 wire [7:0] combo;
@@ -57,6 +59,7 @@ game_ctrl #(
 	.score_bcd(score_bcd), .high_score_bcd(high_score_bcd),
 	.skill_charge(skill_charge), .skill_timer(skill_timer),
 	.skill_on(skill_on), .magnet_on(magnet_on), .game_over(game_over),
+	.gravity_flip_on(gravity_flip_on), .coin_rain_on(coin_rain_on),
 	.game_state(game_state), .combo(combo), .combo_bcd(combo_bcd),
 	.difficulty_level(difficulty_level), .hit_feedback(hit_feedback)
 );
@@ -153,54 +156,51 @@ initial begin
 	pulse_frame();
 	check_result(dut.magnet_timer == 7, "magnet timer counts down once per second");
 
-	// Exercise all eight object effects copied by the mystery pickup.
+	// Mystery now chooses exactly one of two eight-second global events.
 	dut.score = 0; dut.combo = 0; dut.timer = 60; dut.frame_cnt = 0;
-	dut.u_event_lfsr.rnd = 32'h0000_0000;
-	place_item(4'd8, 4'd7);
-	pulse_frame();
-	check_result(score == 1, "mystery copies the +1 effect");
-
-	dut.score = 0; dut.combo = 0;
 	dut.u_event_lfsr.rnd = 32'h0000_0001;
 	place_item(4'd8, 4'd7);
 	pulse_frame();
-	check_result(score == 3, "mystery copies the +3 effect");
+	check_result(gravity_flip_on && !coin_rain_on &&
+		dut.gravity_flip_timer == 8 && player_y == 96,
+		"mystery selects eight seconds of flipped gravity");
 
-	dut.score = 0; dut.combo = 0;
-	dut.u_event_lfsr.rnd = 32'h0000_0002;
+	// Every falling object reverses its Y direction while the field is flipped.
+	place_item(4'd0, 4'd4);
+	dut.obj_ypos[0] = 240;
+	pulse_frame();
+	check_result(dut.obj_ypos[0] < 240,
+		"flipped gravity moves objects upward");
+	dut.obj_count = 0;
+	dut.frame_cnt = 59;
+	repeat (7) begin
+		pulse_frame();
+		dut.frame_cnt = 59;
+	end
+	check_result(dut.gravity_flip_timer == 1 && gravity_flip_on,
+		"flipped gravity remains active through seven seconds");
+	pulse_frame();
+	check_result(!gravity_flip_on && player_y == `PLAYER_GROUND_Y,
+		"flipped gravity ends after eight seconds and restores the floor");
+
+	// The other random result starts coin rain, cancels gravity, and immediately
+	// requests a new spawn.  Spawn remapping is checked directly for all inputs.
+	dut.u_event_lfsr.rnd = 32'h0000_0000;
 	place_item(4'd8, 4'd7);
 	pulse_frame();
-	check_result(score == 5, "mystery copies the +5 effect");
-
-	dut.score = 10; dut.combo = 0;
-	dut.u_event_lfsr.rnd = 32'h0000_0003;
-	place_item(4'd8, 4'd7);
-	pulse_frame();
-	check_result(score == 7, "mystery copies the -3 effect");
-
-	dut.score = 10; dut.combo = 0;
-	dut.u_event_lfsr.rnd = 32'h0000_0004;
-	place_item(4'd8, 4'd7);
-	pulse_frame();
-	check_result(score == 5, "mystery copies the -5 effect");
-
-	dut.timer = 60;
-	dut.u_event_lfsr.rnd = 32'h0000_0005;
-	place_item(4'd8, 4'd7);
-	pulse_frame();
-	check_result(timer == 63, "mystery copies the time effect");
-
-	dut.skill_charge = 0;
-	dut.u_event_lfsr.rnd = 32'h0000_0006;
-	place_item(4'd8, 4'd7);
-	pulse_frame();
-	check_result(skill_charge == 1, "mystery copies the charge effect");
-
-	dut.magnet_timer = 0;
-	dut.u_event_lfsr.rnd = 32'h0000_0007;
-	place_item(4'd8, 4'd7);
-	pulse_frame();
-	check_result(dut.magnet_timer == 8, "mystery copies the magnet effect");
+	check_result(coin_rain_on && !gravity_flip_on &&
+		dut.coin_rain_timer == 8 && dut.spawn_cnt == 0,
+		"mystery selects eight seconds of coin rain");
+	check_result(dut.spawn_type_eff <= 2,
+		"coin rain remaps queued objects to positive coins");
+	dut.obj_count = 0;
+	dut.frame_cnt = 59;
+	repeat (8) begin
+		pulse_frame();
+		dut.obj_count = 0;
+		dut.frame_cnt = 59;
+	end
+	check_result(!coin_rain_on, "coin rain ends after eight seconds");
 
 	// Turtle spawn direction and ground sliding come from its independent RNG.
 	dut.turtle_valid = 0; dut.turtle_spawn_cnt = 0;
@@ -232,7 +232,7 @@ initial begin
 	check_result(score == 0 && timer == 0 && game_over,
 		"turtle penalties clamp at zero and end the game");
 
-	$display("PASS: pickup, magnet, mystery, and sliding turtle behavior");
+	$display("PASS: pickup, magnet, mystery events, gravity, coin rain, and turtle behavior");
 	$finish;
 end
 endmodule

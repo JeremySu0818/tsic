@@ -26,9 +26,9 @@ module game_core #(
 	output [SVO_BITS_PER_PIXEL-1:0] out_axis_tdata,
 	output [0:0] out_axis_tuser
 );
-// Seven active slots keep the full attraction/collision pipeline within the
-// GW1NSR-4C placement limit while preserving the normal spawn cadence.
-localparam MAX_OBJ = 7;
+// Five active slots leave enough placement headroom on the GW1NSR-4C for the two
+// mystery-event gravity paths while keeping a dense on-screen coin rain.
+localparam MAX_OBJ = 5;
 localparam LANE_BITS = 4;
 localparam XOFF_BITS = 4;
 localparam OBJ_TYPE_BITS = 4;
@@ -69,6 +69,8 @@ wire [2:0] skill_charge;
 wire [7:0] skill_timer;
 wire skill_on;
 wire magnet_on;
+wire gravity_flip_on;
+wire coin_rain_on;
 wire game_over;
 wire [1:0] game_state;
 wire [7:0] combo;
@@ -120,6 +122,8 @@ game_ctrl #(
 	.skill_timer(skill_timer),
 	.skill_on(skill_on),
 	.magnet_on(magnet_on),
+	.gravity_flip_on(gravity_flip_on),
+	.coin_rain_on(coin_rain_on),
 	.game_over(game_over),
 	.game_state(game_state),
 	.combo(combo),
@@ -134,6 +138,7 @@ bg_layer #(
 ) u_bg_layer (
 	.clk(clk),
 	.resetn(resetn),
+	.gravity_flip(gravity_flip_on),
 
 	.out_axis_tvalid(bg_tvalid),
 	.out_axis_tready(bg_tready),
@@ -156,6 +161,7 @@ obj_layer #(
 	.player_y(player_y),
 	.player_dir(player_dir),
 	.skill_on(skill_on || magnet_on),
+	.gravity_flip(gravity_flip_on),
 	.obj_valid_bus(obj_valid_bus),
 	.obj_xpos_bus(obj_xpos_bus),
 	.obj_ypos_bus(obj_ypos_bus),

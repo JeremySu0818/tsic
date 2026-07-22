@@ -202,8 +202,14 @@ type 4: -5
 type 5: +time
 type 6: charge
 type 7: magnet (8 seconds, accelerates nearby +1/+3/+5 objects toward the player on the X axis up to 7 px/frame while they keep falling)
-type 8: mystery (randomly copies one of the other eight object effects)
+type 8: mystery (randomly starts either flipped gravity or coin rain for 8 seconds)
 ```
+
+The two mystery events are mutually exclusive. Flipped gravity vertically mirrors
+the background, moves the floor and turtle to the ceiling, flips the sprites, pulls
+the player upward, and makes spawned objects fly upward from the bottom. Coin rain
+reloads the spawn counter every 6 frames and remaps every new object to a random
++1, +3, or +5 coin for the full 8 seconds.
 
 Ground hazard:
 
@@ -242,7 +248,7 @@ The player ROMs are read as `DATA_WIDTH(8)` and converted to BGR888 by
 
 ### Objects
 
-- Maximum active objects: 7 in the Tang Nano 4K build (`game_ctrl` remains parameterized)
+- Maximum active objects: 5 in the Tang Nano 4K build (`game_ctrl` remains parameterized)
 - Display size: 32 x 32
 - Source sprite size: 16 x 16
 - Scaling: 2x pixel replication

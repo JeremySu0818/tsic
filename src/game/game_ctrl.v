@@ -559,7 +559,7 @@ always @(posedge clk) begin
 						jump_velocity <= jump_velocity + 2;
 					end else begin
 						player_y <= jump_next_y[9:0];
-						jump_velocity <= jump_velocity + 1;
+						jump_velocity <= jump_velocity + 2;
 					end
 				end
 
