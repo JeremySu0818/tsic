@@ -205,7 +205,7 @@ initial begin
 	dut.score = 15; dut.timer = 60; dut.player_y = `FLIPPED_GROUND_Y;
 	dut.jump_velocity = 0; dut.turtle_valid = 1; dut.turtle_x = player_x;
 	pulse_frame();
-	check_result(score == 5 && timer == 50 && !turtle_valid,
+	check_result(score == 15 && timer == 50 && !turtle_valid,
 		"turtle collision moves to the flipped ceiling floor");
 
 	// Reversal invalidates spawn ordering: remove whichever object reaches the
@@ -267,18 +267,18 @@ initial begin
 		"jumping above the turtle avoids its penalty");
 	dut.player_y = `PLAYER_GROUND_Y;
 
-	// The sliding turtle always deducts 10 points and 10 seconds, then despawns.
+	// The sliding turtle costs ten seconds, preserves score, resets combo, then despawns.
 	dut.score = 15; dut.timer = 30; dut.combo = 6;
 	dut.turtle_valid = 1; dut.turtle_x = player_x;
 	pulse_frame();
-	check_result(score == 5 && timer == 20 && combo == 0 && !turtle_valid,
-		"turtle deducts score and time, resets combo, and despawns");
+	check_result(score == 15 && timer == 20 && combo == 0 && !turtle_valid,
+		"turtle preserves score, deducts time, resets combo, and despawns");
 
 	dut.score = 4; dut.timer = 8;
 	dut.turtle_valid = 1; dut.turtle_x = player_x;
 	pulse_frame();
-	check_result(score == 0 && timer == 0 && game_over,
-		"turtle penalties clamp at zero and end the game");
+	check_result(score == 4 && timer == 0 && game_over,
+		"turtle time penalty clamps at zero and ends the game");
 
 	$display("PASS: pickup, magnet, mystery events, gravity, coin rain, and turtle behavior");
 	$finish;

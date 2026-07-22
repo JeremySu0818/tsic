@@ -215,7 +215,7 @@ Ground hazard:
 
 - A pixel turtle randomly enters from the left or right about every 2–4 seconds.
 - It uses a large 64x64 render box, slides across the grass at 3 px/frame, and can be avoided by jumping.
-- Touching it removes 10 score and 10 seconds (both clamp at zero), resets the combo, and despawns the turtle.
+- Touching it removes 10 seconds (clamped at zero), resets the combo, and despawns the turtle; earned score is preserved.
 
 Score clamps to the displayable BCD range, 0 to 999.
 

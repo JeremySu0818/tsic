@@ -367,7 +367,8 @@ always @(*) begin
 	next_combo = combo;
 
 	if (turtle_hit) begin
-		next_score = score > 10 ? score - 10 : 0;
+		// Turtle contact costs time but never removes earned score.
+		next_score = score;
 		next_timer = timer > 10 ? timer - 10 : 0;
 		next_combo = 0;
 	end else if (hit_valid) begin
