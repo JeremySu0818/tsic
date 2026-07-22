@@ -255,8 +255,10 @@ The player ROMs are read as `DATA_WIDTH(8)` and converted to BGR888 by
 - Storage: RGB323 (8-bit); all types share one atlas ROM addressed by `{obj_type, src_y, src_x}`
 - Default fall speed: 2 px/frame
 - Default spawn period: 24 frames
-- Difficulty ramps at 40 and 20 seconds remaining: fall speed 2/3/4 px per
-  frame and spawn period 24/18/12 frames
+- Difficulty divides the configured game timer into equal thirds. With the
+  default 180-second game it ramps at 120 and 60 seconds remaining: fall speed
+  2/3/4 px per frame and spawn period 24/18/12 frames. Changing `TIMER_START`
+  automatically rescales both thresholds.
 - Skill patches can change the spawn counter reload locally.
 
 Object type probability:

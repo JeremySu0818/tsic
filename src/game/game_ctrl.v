@@ -79,15 +79,25 @@ localparam MAGNET_DURATION = 8;
 localparam MAGNET_RANGE = 96;
 localparam [2:0] MAGNET_SPEED_MAX = 3'd7;
 
+// Preserve the original 60/40/20 pacing for any configured game length by
+// dividing the full timer into equal thirds. With TIMER_START=180, the medium
+// and hard stages therefore begin at 120 and 60 seconds remaining.
+localparam [7:0] DIFFICULTY_MEDIUM_TIME = (TIMER_START * 2) / 3;
+localparam [7:0] DIFFICULTY_HARD_TIME = TIMER_START / 3;
+
 localparam [9:0] SCREEN_W = 640;
+localparam [9:0] SCREEN_H = 480;
 localparam [9:0] OBJ_GROUND_Y = `GROUND_Y - `OBJ_H;
+localparam [9:0] OBJ_FLIPPED_GROUND_Y = `FLIPPED_GROUND_Y;
+localparam [9:0] OBJ_FLIPPED_SPAWN_Y = SCREEN_H - `OBJ_H;
 localparam [9:0] PLAYER_MAX_X = SCREEN_W - `PLAYER_W;
 // Turtle art is rendered at 4x source size (64x64); its opaque body occupies
 // the lower 24 pixels, so the collision area stays tight to the ground.
 localparam [9:0] TURTLE_RENDER_W = 10'd64;
 localparam [9:0] TURTLE_HIT_H = 10'd24;
 localparam [9:0] TURTLE_MAX_X = SCREEN_W - TURTLE_RENDER_W;
-localparam [9:0] TURTLE_Y = `GROUND_Y - TURTLE_HIT_H;
+localparam [9:0] TURTLE_NORMAL_Y = `GROUND_Y - TURTLE_HIT_H;
+localparam [9:0] TURTLE_FLIPPED_Y = `FLIPPED_GROUND_Y;
 localparam [3:0] TURTLE_SPEED = 4'd3;
 localparam [7:0] TURTLE_SPAWN_MIN = FPS * 2;
 
@@ -127,10 +137,11 @@ wire spawn_pop = frame_tick && state == S_PLAY &&
 wire game_step = frame_tick && state == S_PLAY;
 wire timer_tick = frame_cnt == FPS - 1;
 wire sec_tick = game_step && timer_tick;
-wire [2:0] fall_speed_eff = (timer <= 20) ? 3'd4 :
-								 (timer <= 40) ? 3'd3 : 3'd2;
+wire [2:0] fall_speed_eff = (timer <= DIFFICULTY_HARD_TIME) ? 3'd4 :
+								 (timer <= DIFFICULTY_MEDIUM_TIME) ? 3'd3 : 3'd2;
 wire signed [11:0] player_y_signed = $signed({1'b0, player_y});
 wire signed [11:0] player_ground_y_signed = $signed({1'b0, `PLAYER_GROUND_Y});
+wire signed [11:0] player_flipped_ground_y_signed = $signed({1'b0, `FLIPPED_GROUND_Y});
 wire signed [11:0] jump_next_y = player_y_signed + jump_velocity;
 
 assign game_over = state == S_OVER;
@@ -139,10 +150,11 @@ assign magnet_on = magnet_timer != 0;
 assign gravity_flip_on = gravity_flip_timer != 0;
 assign coin_rain_on = coin_rain_timer != 0;
 
+wire [9:0] turtle_y = gravity_flip_on ? TURTLE_FLIPPED_Y : TURTLE_NORMAL_Y;
 wire turtle_hit = game_step && turtle_valid &&
-	player_x < turtle_x + `OBJ_W && player_x + `PLAYER_W > turtle_x &&
-	player_y + PLAYER_HIT_TOP_PAD < TURTLE_Y + `OBJ_H &&
-	player_y + `PLAYER_H > TURTLE_Y;
+	player_x < turtle_x + TURTLE_RENDER_W && player_x + `PLAYER_W > turtle_x &&
+	player_y + PLAYER_HIT_TOP_PAD < turtle_y + TURTLE_HIT_H &&
+	player_y + `PLAYER_H > turtle_y;
 wire turtle_spawn_fire = game_step && !turtle_valid && turtle_spawn_cnt == 0;
 wire [31:0] turtle_rnd;
 
@@ -259,7 +271,17 @@ always @(*) begin
 
 	for (attract_i = 0; attract_i < MAX_OBJ; attract_i = attract_i + 1) begin
 		obj_xpos_step[attract_i] = obj_xpos[attract_i];
-		obj_ypos_step[attract_i] = obj_ypos[attract_i] + fall_speed_eff;
+		if (gravity_flip_on) begin
+			if (obj_ypos[attract_i] <= OBJ_FLIPPED_GROUND_Y + fall_speed_eff)
+				obj_ypos_step[attract_i] = OBJ_FLIPPED_GROUND_Y;
+			else
+				obj_ypos_step[attract_i] = obj_ypos[attract_i] - fall_speed_eff;
+		end else begin
+			if (obj_ypos[attract_i] + fall_speed_eff >= OBJ_GROUND_Y)
+				obj_ypos_step[attract_i] = OBJ_GROUND_Y;
+			else
+				obj_ypos_step[attract_i] = obj_ypos[attract_i] + fall_speed_eff;
+		end
 		obj_xspeed_step[attract_i] = 0;
 
 		if (magnet_on && attract_i < obj_count &&
@@ -284,17 +306,19 @@ always @(*) begin
 					obj_xpos_step[attract_i] = obj_xpos[attract_i] - obj_xspeed_step[attract_i];
 			end
 
-			// Keep the normal downward fall. At ground height, perform the final
-			// horizontal pull so the next frame catches the reward normally.
-			if (obj_ypos[attract_i] + fall_speed_eff >= OBJ_GROUND_Y)
+			// At either floor, perform the final horizontal pull so the next frame
+			// catches a magnet-scoped reward normally.
+			if ((!gravity_flip_on && obj_ypos[attract_i] + fall_speed_eff >= OBJ_GROUND_Y) ||
+				(gravity_flip_on && obj_ypos[attract_i] <= OBJ_FLIPPED_GROUND_Y + fall_speed_eff))
 				obj_xpos_step[attract_i] = attract_target_x;
 		end
 	end
 end
 
+wire [31:0] event_rnd;
 wire mystery_hit = game_step && hit_valid && obj_type[hit_idx] == TYPE_MYSTERY;
 wire coin_rain_start = mystery_hit && !event_rnd[0];
-wire [31:0] event_rnd;
+wire gravity_flip_start = mystery_hit && event_rnd[0];
 
 lfsr32 #(
 	.SEED(32'hC0DE_1234)
@@ -305,10 +329,25 @@ lfsr32 #(
 	.rnd(event_rnd)
 );
 
-wire ground_valid = (obj_count != 0) && (obj_ypos[0] >= OBJ_GROUND_Y) &&
-	!obj_magnet_scoped[0];
+integer ground_i;
+reg ground_valid;
+reg [4:0] ground_idx;
+
+always @(*) begin
+	ground_valid = 0;
+	ground_idx = 0;
+	for (ground_i = 0; ground_i < MAX_OBJ; ground_i = ground_i + 1) begin
+		if (!ground_valid && ground_i < obj_count && !obj_magnet_scoped[ground_i] &&
+			(gravity_flip_on ? (obj_ypos[ground_i] <= OBJ_FLIPPED_GROUND_Y) :
+				(obj_ypos[ground_i] >= OBJ_GROUND_Y))) begin
+			ground_valid = 1;
+			ground_idx = ground_i[4:0];
+		end
+	end
+end
+
 assign remove_valid = hit_valid || ground_valid;
-wire [4:0] remove_idx = hit_valid ? hit_idx : 0;
+wire [4:0] remove_idx = hit_valid ? hit_idx : ground_idx;
 
 reg [9:0] next_score;
 reg [7:0] next_timer;
@@ -552,11 +591,11 @@ always @(posedge clk) begin
 					gravity_flip_timer <= gravity_flip_timer - 1'b1;
 				if (sec_tick && coin_rain_timer != 0)
 					coin_rain_timer <= coin_rain_timer - 1'b1;
-				// Three-stage difficulty ramp keeps the last 20 seconds frantic.
-				if (timer <= 20) begin
+				// Three equal-duration stages keep pacing linear when TIMER_START changes.
+				if (timer <= DIFFICULTY_HARD_TIME) begin
 					difficulty_level <= 2;
 					spawn_period <= 12;
-				end else if (timer <= 40) begin
+				end else if (timer <= DIFFICULTY_MEDIUM_TIME) begin
 					difficulty_level <= 1;
 					spawn_period <= 18;
 				end else begin
@@ -564,9 +603,29 @@ always @(posedge clk) begin
 					spawn_period <= SPAWN_PERIOD_FRAMES;
 				end
 
-				// One-button jump with gravity. A release rearms the next jump,
-				// preventing bunny-hop repeats while the button is held.
-				if (player_y == `PLAYER_GROUND_Y && btn_jump && jump_armed) begin
+				// Jump away from the active floor. Flipped mode mirrors both the
+				// launch direction and acceleration around the ceiling-side floor.
+				if (sec_tick && gravity_flip_timer == 1) begin
+					player_y <= `PLAYER_GROUND_Y;
+					jump_velocity <= 0;
+				end else if (gravity_flip_on) begin
+					if (player_y == `FLIPPED_GROUND_Y && btn_jump && jump_armed) begin
+						jump_velocity <= 7'sd20;
+						player_y <= `FLIPPED_GROUND_Y + 10'd20;
+						jump_armed <= 1'b0;
+					end else if (player_y > `FLIPPED_GROUND_Y) begin
+						if (jump_next_y <= player_flipped_ground_y_signed) begin
+							player_y <= `FLIPPED_GROUND_Y;
+							jump_velocity <= 0;
+						end else if (jump_next_y + `PLAYER_H >= SCREEN_H) begin
+							player_y <= SCREEN_H - `PLAYER_H;
+							jump_velocity <= jump_velocity - 2;
+						end else begin
+							player_y <= jump_next_y[9:0];
+							jump_velocity <= jump_velocity - 2;
+						end
+					end
+				end else if (player_y == `PLAYER_GROUND_Y && btn_jump && jump_armed) begin
 					jump_velocity <= -7'sd20;
 					player_y <= `PLAYER_GROUND_Y - 10'd20;
 					jump_armed <= 1'b0;
@@ -629,9 +688,15 @@ always @(posedge clk) begin
 						if (event_rnd[0]) begin
 							gravity_flip_timer <= MAGNET_DURATION;
 							coin_rain_timer <= 0;
+							player_y <= `FLIPPED_GROUND_Y;
+							jump_velocity <= 0;
 						end else begin
 							coin_rain_timer <= MAGNET_DURATION;
 							gravity_flip_timer <= 0;
+							if (gravity_flip_on) begin
+								player_y <= `PLAYER_GROUND_Y;
+								jump_velocity <= 0;
+							end
 							// Coin rain is a reward event: turn on the same eight-second
 							// magnet window as soon as it starts, not one frame later.
 							magnet_timer <= MAGNET_DURATION;
@@ -645,9 +710,9 @@ always @(posedge clk) begin
 					else
 						hit_feedback <= 2;
 				end else if (ground_valid &&
-					(obj_type[0] <= TYPE_COIN_5 || obj_type[0] == TYPE_TIME ||
-					 obj_type[0] == TYPE_CHARGE || obj_type[0] == TYPE_MAGNET ||
-					 obj_type[0] == TYPE_MYSTERY)) begin
+					(obj_type[ground_idx] <= TYPE_COIN_5 || obj_type[ground_idx] == TYPE_TIME ||
+					 obj_type[ground_idx] == TYPE_CHARGE || obj_type[ground_idx] == TYPE_MAGNET ||
+					 obj_type[ground_idx] == TYPE_MYSTERY)) begin
 					combo <= 0;
 				end
 
@@ -671,7 +736,8 @@ always @(posedge clk) begin
 					if (spawn_pop) begin
 						obj_xpos[obj_count - 1] <= obj_x(spawn_lane, spawn_xoff);
 						obj_type[obj_count - 1] <= spawn_type_eff;
-						obj_ypos[obj_count - 1] <= 0;
+						obj_ypos[obj_count - 1] <= (gravity_flip_on || gravity_flip_start) ?
+							OBJ_FLIPPED_SPAWN_Y : 0;
 						obj_xspeed[obj_count - 1] <= 0;
 						obj_count <= obj_count;
 					end else begin
@@ -689,7 +755,8 @@ always @(posedge clk) begin
 					if (spawn_pop) begin
 						obj_xpos[obj_count] <= obj_x(spawn_lane, spawn_xoff);
 						obj_type[obj_count] <= spawn_type_eff;
-						obj_ypos[obj_count] <= 0;
+						obj_ypos[obj_count] <= (gravity_flip_on || gravity_flip_start) ?
+							OBJ_FLIPPED_SPAWN_Y : 0;
 						obj_xspeed[obj_count] <= 0;
 						obj_count <= obj_count + 1;
 					end

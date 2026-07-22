@@ -107,6 +107,28 @@ initial begin
 	@(posedge clk); #1;
 	check_result(game_state == 1, "game enters play state");
 
+	// Difficulty thresholds scale with the configured 180-second game instead
+	// of retaining the old fixed 40/20-second cutoffs.
+	dut.timer = 121; dut.frame_cnt = 0;
+	pulse_frame();
+	check_result(difficulty_level == 0 && dut.fall_speed_eff == 2,
+		"first difficulty stage lasts through the first third");
+	dut.timer = 120;
+	pulse_frame();
+	check_result(difficulty_level == 1 && dut.spawn_period == 18 &&
+		dut.fall_speed_eff == 3,
+		"medium difficulty begins with two thirds of the timer remaining");
+	dut.timer = 60;
+	pulse_frame();
+	check_result(difficulty_level == 2 && dut.spawn_period == 12 &&
+		dut.fall_speed_eff == 4,
+		"hard difficulty begins with one third of the timer remaining");
+	dut.timer = 180;
+	pulse_frame();
+	check_result(difficulty_level == 0 && dut.spawn_period == 24,
+		"full timer restores the base difficulty");
+	dut.frame_cnt = 0;
+
 	// The raised launch speed reaches at least 127 pixels above ground.
 	btn_jump = 1;
 	pulse_frame();
@@ -171,6 +193,31 @@ initial begin
 	pulse_frame();
 	check_result(dut.obj_ypos[0] < 240,
 		"flipped gravity moves objects upward");
+
+	// The player jumps away from the ceiling floor, and the turtle collision
+	// follows the same flipped floor instead of staying at the bottom.
+	dut.obj_count = 0; dut.player_y = `FLIPPED_GROUND_Y;
+	dut.jump_velocity = 0; dut.jump_armed = 1; btn_jump = 1;
+	pulse_frame();
+	btn_jump = 0;
+	check_result(player_y == `FLIPPED_GROUND_Y + 20 && dut.jump_velocity == 20,
+		"flipped jump launches downward away from the ceiling floor");
+	dut.score = 15; dut.timer = 60; dut.player_y = `FLIPPED_GROUND_Y;
+	dut.jump_velocity = 0; dut.turtle_valid = 1; dut.turtle_x = player_x;
+	pulse_frame();
+	check_result(score == 5 && timer == 50 && !turtle_valid,
+		"turtle collision moves to the flipped ceiling floor");
+
+	// Reversal invalidates spawn ordering: remove whichever object reaches the
+	// ceiling first, not merely queue entry zero.
+	dut.obj_count = 2;
+	dut.obj_type[0] = 0; dut.obj_xpos[0] = 64; dut.obj_ypos[0] = 200;
+	dut.obj_type[1] = 0; dut.obj_xpos[1] = 96;
+	dut.obj_ypos[1] = `FLIPPED_GROUND_Y;
+	dut.obj_xspeed[0] = 0; dut.obj_xspeed[1] = 0; dut.spawn_cnt = 100;
+	pulse_frame();
+	check_result(dut.obj_count == 1 && dut.obj_ypos[0] < 200,
+		"flipped floor removes the first landed object regardless of queue order");
 	dut.obj_count = 0;
 	dut.frame_cnt = 59;
 	repeat (7) begin
