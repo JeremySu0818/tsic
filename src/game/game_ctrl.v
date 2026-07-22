@@ -12,7 +12,7 @@ module game_ctrl #(
 	parameter PLAYER_HIT_TOP_PAD = 16,
 	parameter PLAYER_START_X = 288,
 	parameter PLAYER_SPEED_START = 8,
-	parameter TIMER_START = 60,
+	parameter TIMER_START = 180,
 	parameter TIME_BONUS = 3,
 	parameter FPS = 60,
 	parameter SKILL_CHARGE_MAX = 5,

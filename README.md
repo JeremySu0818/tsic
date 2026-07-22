@@ -178,7 +178,7 @@ The state register stays inside `game_ctrl`; render layers only receive the simp
 
 ### Timer and Score
 
-- `timer` starts from `TIMER_START`.
+- `timer` starts from `TIMER_START` (180 seconds / 3 minutes by default).
 - `FPS` defines how many `frame_tick` pulses make one second; `timer` decreases once every `FPS` frame ticks.
 - When `timer` reaches 0, the game enters game over.
 - `timer` and `score` are stored as binary registers and converted to packed 3-digit BCD for the UI.
@@ -778,7 +778,7 @@ Reset 後直接從 `playing` 開始。狀態值 `0` 目前未使用。
 
 ### 計時器與分數
 
-- `timer` 從 `TIMER_START` 開始。
+- `timer` 從 `TIMER_START` 開始（預設 180 秒／3 分鐘）。
 - `FPS` 定義幾個 `frame_tick` 脈衝算一秒；`timer` 每 `FPS` 個 frame tick 減一。
 - 當 `timer` 歸零時，遊戲進入 game over。
 - `timer` 與 `score` 以二進位暫存器儲存，並轉換成打包的 3 位數 BCD 供 UI 使用。
