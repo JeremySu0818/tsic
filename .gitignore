@@ -1,6 +1,38 @@
+# FPGA implementation outputs (recreated by the vendor tools)
 impl/
-skills/fs/*.fs
+*.fs
+*.fsdb
+*.sdf
+*.sta
+
+# Per-user project and tool state
 *.user
-.agents
+.agents/
+
+# Simulation build products, waveforms, and runtime captures
+a.out
 sim/build/
 sim/runtime/
+*.vvp
+*.vcd
+*.vpd
+*.fst
+*.wlf
+*.ghw
+
+# Generated deliverables and inspection artifacts
+outputs/
+*.inspect.ndjson
+
+# Editor, OS, and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+~$*
+.~lock.*
+.DS_Store
+Thumbs.db
+Desktop.ini
