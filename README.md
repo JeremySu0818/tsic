@@ -10,12 +10,11 @@ You can run the real game/render RTL without connecting or programming the board
 powershell -ExecutionPolicy Bypass -File .\sim\run.ps1
 ```
 
-The default simulator is a native C++20/Win32 backend with all five button
-inputs, reset, a resizable/fullscreen 640x480 framebuffer, and a fixed 60 Hz
-game loop. Use `F11` for fullscreen. The original Icarus RTL viewer remains
-available through `sim/run.ps1 -Exact` for regression checks. See
-[`sim/README.md`](sim/README.md) for controls and tests. In VS Code, run the
-`simulate` task.
+The simulator uses Verilator to compile the current Verilog `game_core` and
+render pipeline into an optimized native C++ DUT. The Win32 harness only
+provides keyboard inputs and displays the real 640x480 BGR888 RTL stream. Use
+`F11` for fullscreen. See [`sim/README.md`](sim/README.md) for controls. In VS
+Code, run the `simulate` task.
 
 Open this repository with `hdmi_coin` as the project root. The design keeps button input, game logic, render layers, and HDMI output separated so each part can be developed and explained independently.
 

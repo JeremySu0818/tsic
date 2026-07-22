@@ -12,7 +12,7 @@ IO_PORT "resetn" PULL_MODE=UP;
 IO_LOC "clk" 45;
 IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
-IO_LOC "btn_start" 15;
+IO_LOC "btn_start" 13;
 IO_PORT "btn_start" PULL_MODE=UP BANK_VCCIO=1.8;
 
 IO_LOC "btn_left" 19;

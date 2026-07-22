@@ -186,13 +186,16 @@ always @(*) begin
 	ly_big    = 0;
 	ly_small  = 0;
 
-	tcol = big_col(pixel_x, TIMER_X);
-	scol = big_col(pixel_x, SCORE_X);
-	hcol = big_col(pixel_x, HIGH_SCORE_X);
-	kcol = small_col(pixel_x, SKILL_TIME_X);
-	ccol = small_col(pixel_x, COMBO_X);
+	tcol = 0;
+	scol = 0;
+	hcol = 0;
+	kcol = 0;
+	ccol = 0;
 
 	if (pixel_y >= DIGIT_Y && pixel_y < DIGIT_Y + DIGIT_H) begin
+		tcol = big_col(pixel_x, TIMER_X);
+		scol = big_col(pixel_x, SCORE_X);
+		hcol = big_col(pixel_x, HIGH_SCORE_X);
 		ly_big = pixel_y - DIGIT_Y;
 		if (tcol[7]) begin
 			glyph_hit = 1'b1; field = 2'd0; lx_sel = tcol[4:0];
@@ -229,6 +232,7 @@ always @(*) begin
 	// one glyph. Only reachable when the big field did not already claim it.
 	if (!glyph_hit && skill_small_on &&
 		pixel_y >= SKILL_TIME_Y && pixel_y < SKILL_TIME_Y + SMALL_DIGIT_H) begin
+		kcol = small_col(pixel_x, SKILL_TIME_X);
 		ly_small = pixel_y - SKILL_TIME_Y;
 		if (kcol[7]) begin
 			glyph_hit = 1'b1; field = 2'd3; lx_sel = kcol[4:0];
@@ -242,6 +246,7 @@ always @(*) begin
 	end
 
 	if (!glyph_hit && game_state == 2'd1 && pixel_y >= COMBO_Y && pixel_y < COMBO_Y + SMALL_DIGIT_H) begin
+		ccol = small_col(pixel_x, COMBO_X);
 		ly_small = pixel_y - COMBO_Y;
 		if (ccol[7]) begin
 			glyph_hit = 1'b1; field = 3'd4; lx_sel = ccol[4:0];

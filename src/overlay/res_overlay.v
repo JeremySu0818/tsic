@@ -205,13 +205,14 @@ always @(*) begin
 	ci        = 3'd0;
 	title_tid = TXT_TITLE;
 	title_chars = 4'd7;
-	if (game_state == 2'd0) begin
-		title_tid = TXT_COIN;
-		title_chars = 4'd4;
-	end else if (game_state == 2'd3) begin
-		title_tid = TXT_PAUSE;
-		title_chars = 4'd5;
-	end
+	if (show) begin
+		if (game_state == 2'd0) begin
+			title_tid = TXT_COIN;
+			title_chars = 4'd4;
+		end else if (game_state == 2'd3) begin
+			title_tid = TXT_PAUSE;
+			title_chars = 4'd5;
+		end
 
 	// Title "TIME UP", scale 4
 	if (pixel_y >= TITLE_Y && pixel_y < TITLE_Y + 48) begin
@@ -297,6 +298,7 @@ always @(*) begin
 			font_x    = gc[4:0] >> 2;
 			font_y    = (pixel_y - BEST_VAL_Y) >> 2;
 		end
+	end
 	end
 end
 

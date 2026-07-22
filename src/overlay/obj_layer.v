@@ -86,20 +86,22 @@ always @(*) begin
 	scan_local_x = 0;
 	scan_local_y = 0;
 
-	for (obj_i = 0; obj_i < MAX_OBJ; obj_i = obj_i + 1) begin
-		scan_obj_x = obj_xpos_bus[obj_i*OBJ_Y_BITS +: OBJ_Y_BITS];
-		scan_obj_ypos = obj_ypos_bus[obj_i*OBJ_Y_BITS +: OBJ_Y_BITS];
+	if (|obj_valid_bus) begin
+		for (obj_i = 0; obj_i < MAX_OBJ; obj_i = obj_i + 1) begin
+			scan_obj_x = obj_xpos_bus[obj_i*OBJ_Y_BITS +: OBJ_Y_BITS];
+			scan_obj_ypos = obj_ypos_bus[obj_i*OBJ_Y_BITS +: OBJ_Y_BITS];
 
-		// AABB hit test
-		if (!obj_hit && obj_valid_bus[obj_i] &&
-			pixel_x >= scan_obj_x && pixel_x < scan_obj_x + `OBJ_W &&
-			pixel_y >= scan_obj_ypos && pixel_y < scan_obj_ypos + `OBJ_H) begin
-			scan_local_x = pixel_x - scan_obj_x;
-			scan_local_y = pixel_y - scan_obj_ypos;
-			obj_hit = 1;
-			obj_type_now = obj_type_bus[obj_i*OBJ_TYPE_BITS +: OBJ_TYPE_BITS];
-			obj_local_x = scan_local_x[4:0];
-			obj_local_y = scan_local_y[4:0];
+			// AABB hit test
+			if (!obj_hit && obj_valid_bus[obj_i] &&
+				pixel_x >= scan_obj_x && pixel_x < scan_obj_x + `OBJ_W &&
+				pixel_y >= scan_obj_ypos && pixel_y < scan_obj_ypos + `OBJ_H) begin
+				scan_local_x = pixel_x - scan_obj_x;
+				scan_local_y = pixel_y - scan_obj_ypos;
+				obj_hit = 1;
+				obj_type_now = obj_type_bus[obj_i*OBJ_TYPE_BITS +: OBJ_TYPE_BITS];
+				obj_local_x = scan_local_x[4:0];
+				obj_local_y = scan_local_y[4:0];
+			end
 		end
 	end
 

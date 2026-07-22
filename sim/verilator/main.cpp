@@ -29,6 +29,7 @@ std::atomic<bool> skillPressed{false};
 std::atomic<bool> jumpPressed{false};
 std::atomic<bool> resetPressed{false};
 std::atomic<double> simulationFps{0.0};
+std::atomic<int> benchmarkTarget{0};
 
 std::mutex frameMutex;
 std::vector<uint32_t> publishedFrame(PIXELS, 0);
@@ -77,10 +78,17 @@ void simulationThread() {
     resetPressed.store(true);
     for (int i = 0; i < 16; ++i) clockOnce(*context, *dut);
     resetPressed.store(false);
+    if (benchmarkTarget.load(std::memory_order_relaxed) > 0) {
+        startPressed.store(true);
+        clockOnce(*context, *dut);
+        startPressed.store(false);
+        clockOnce(*context, *dut);
+    }
 
     using clock = std::chrono::steady_clock;
     auto fpsStart = clock::now();
     int frameCount = 0;
+    int totalFrames = 0;
 
     while (running.load(std::memory_order_relaxed) && !context->gotFinish()) {
         clockOnce(*context, *dut);
@@ -99,7 +107,12 @@ void simulationThread() {
                     }
                     capturing = false;
                     ++frameCount;
+                    ++totalFrames;
                     PostMessage(mainWindow, FRAME_READY, 0, 0);
+                    if (benchmarkTarget.load(std::memory_order_relaxed) > 0 &&
+                        totalFrames >= benchmarkTarget.load(std::memory_order_relaxed)) {
+                        PostMessage(mainWindow, WM_CLOSE, 0, 0);
+                    }
 
                     const auto now = clock::now();
                     const double elapsed = std::chrono::duration<double>(now - fpsStart).count();
@@ -224,6 +237,7 @@ LRESULT CALLBACK windowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     savedPlacement.length = sizeof(savedPlacement);
+    if (wcsstr(GetCommandLineW(), L"--benchmark")) benchmarkTarget = 32;
 
     constexpr wchar_t windowClass[] = L"TangNanoVerilatedWindow";
     WNDCLASSW definition{};
@@ -243,8 +257,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
                                  nullptr, nullptr, instance, nullptr);
     if (!mainWindow) return 1;
 
-    ShowWindow(mainWindow, showCommand);
-    UpdateWindow(mainWindow);
+    if (benchmarkTarget.load() == 0) {
+        ShowWindow(mainWindow, showCommand);
+        UpdateWindow(mainWindow);
+    }
     std::thread simulator(simulationThread);
 
     MSG message{};
