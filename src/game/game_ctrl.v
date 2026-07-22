@@ -51,6 +51,8 @@ module game_ctrl #(
 	output [7:0] skill_timer,
 	output skill_on,
 	output magnet_on,
+	output gravity_flip_on,
+	output coin_rain_on,
 	output game_over,
 	output [1:0] game_state,
 	output reg [7:0] combo,
@@ -104,6 +106,8 @@ reg signed [6:0] jump_velocity;
 reg jump_armed;
 reg [3:0] feedback_timer;
 reg [3:0] magnet_timer;
+reg [3:0] gravity_flip_timer;
+reg [3:0] coin_rain_timer;
 reg [7:0] turtle_spawn_cnt;
 
 wire btn_start_rise = btn_start && !btn_start_q;
@@ -132,6 +136,8 @@ wire signed [11:0] jump_next_y = player_y_signed + jump_velocity;
 assign game_over = state == S_OVER;
 assign game_state = state;
 assign magnet_on = magnet_timer != 0;
+assign gravity_flip_on = gravity_flip_timer != 0;
+assign coin_rain_on = coin_rain_timer != 0;
 
 wire turtle_hit = game_step && turtle_valid &&
 	player_x < turtle_x + `OBJ_W && player_x + `PLAYER_W > turtle_x &&
@@ -180,6 +186,11 @@ wire [OBJ_TYPE_BITS-1:0] spawn_type_raw = spawn_data[3:0];
 wire [LANE_BITS-1:0] spawn_lane;
 wire [XOFF_BITS-1:0] spawn_xoff;
 wire [OBJ_TYPE_BITS-1:0] spawn_type;
+// A coin-rain event must only produce score coins.  Use the queued random
+// type bits as the source so the distribution continues to vary per spawn.
+wire [OBJ_TYPE_BITS-1:0] spawn_type_eff = coin_rain_on ?
+	(spawn_type_raw[1:0] == 2'd3 ? TYPE_COIN_1 : {2'b00, spawn_type_raw[1:0]}) :
+	spawn_type;
 
 spawn_postprocess #(
 	.LANE_BITS(LANE_BITS),
@@ -282,6 +293,7 @@ always @(*) begin
 end
 
 wire mystery_hit = game_step && hit_valid && obj_type[hit_idx] == TYPE_MYSTERY;
+wire coin_rain_start = mystery_hit && !event_rnd[0];
 wire [31:0] event_rnd;
 
 lfsr32 #(
@@ -449,6 +461,8 @@ always @(posedge clk) begin
 		hit_feedback <= 0;
 		feedback_timer <= 0;
 		magnet_timer <= 0;
+		gravity_flip_timer <= 0;
+		coin_rain_timer <= 0;
 		turtle_valid <= 0;
 		turtle_x <= 0;
 		turtle_dir <= 1;
@@ -486,6 +500,8 @@ always @(posedge clk) begin
 				hit_feedback <= 0;
 				feedback_timer <= 0;
 				magnet_timer <= 0;
+				gravity_flip_timer <= 0;
+				coin_rain_timer <= 0;
 				turtle_valid <= 0;
 				turtle_x <= 0;
 				turtle_dir <= 1;
@@ -532,6 +548,10 @@ always @(posedge clk) begin
 				end
 				if (sec_tick && magnet_timer != 0)
 					magnet_timer <= magnet_timer - 1'b1;
+				if (sec_tick && gravity_flip_timer != 0)
+					gravity_flip_timer <= gravity_flip_timer - 1'b1;
+				if (sec_tick && coin_rain_timer != 0)
+					coin_rain_timer <= coin_rain_timer - 1'b1;
 				// Three-stage difficulty ramp keeps the last 20 seconds frantic.
 				if (timer <= 20) begin
 					difficulty_level <= 2;
@@ -605,6 +625,18 @@ always @(posedge clk) begin
 					if (obj_type[hit_idx] == TYPE_MAGNET ||
 						(obj_type[hit_idx] == TYPE_MYSTERY && event_rnd[2:0] == 3'd7))
 						magnet_timer <= MAGNET_DURATION;
+					if (mystery_hit) begin
+						if (event_rnd[0]) begin
+							gravity_flip_timer <= MAGNET_DURATION;
+							coin_rain_timer <= 0;
+						end else begin
+							coin_rain_timer <= MAGNET_DURATION;
+							gravity_flip_timer <= 0;
+							// Coin rain is a reward event: turn on the same eight-second
+							// magnet window as soon as it starts, not one frame later.
+							magnet_timer <= MAGNET_DURATION;
+						end
+					end
 					if (obj_type[hit_idx] == TYPE_TIME || obj_type[hit_idx] == TYPE_CHARGE ||
 						obj_type[hit_idx] == TYPE_MAGNET || obj_type[hit_idx] == TYPE_MYSTERY)
 						hit_feedback <= 3;
@@ -638,7 +670,7 @@ always @(posedge clk) begin
 
 					if (spawn_pop) begin
 						obj_xpos[obj_count - 1] <= obj_x(spawn_lane, spawn_xoff);
-						obj_type[obj_count - 1] <= spawn_type;
+						obj_type[obj_count - 1] <= spawn_type_eff;
 						obj_ypos[obj_count - 1] <= 0;
 						obj_xspeed[obj_count - 1] <= 0;
 						obj_count <= obj_count;
@@ -656,14 +688,19 @@ always @(posedge clk) begin
 
 					if (spawn_pop) begin
 						obj_xpos[obj_count] <= obj_x(spawn_lane, spawn_xoff);
-						obj_type[obj_count] <= spawn_type;
+						obj_type[obj_count] <= spawn_type_eff;
 						obj_ypos[obj_count] <= 0;
 						obj_xspeed[obj_count] <= 0;
 						obj_count <= obj_count + 1;
 					end
 				end
 
-				if (spawn_pop)
+				if (coin_rain_start)
+					// Start the dense stream immediately on the next game frame.
+					spawn_cnt <= 0;
+				else if (coin_rain_on && spawn_pop)
+					spawn_cnt <= 8'd5;
+				else if (spawn_pop)
 					spawn_cnt <= spawn_period - 1;
 				else if (spawn_cnt != 0)
 					spawn_cnt <= spawn_cnt - 1;

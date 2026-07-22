@@ -189,8 +189,9 @@ initial begin
 	place_item(4'd8, 4'd7);
 	pulse_frame();
 	check_result(coin_rain_on && !gravity_flip_on &&
-		dut.coin_rain_timer == 8 && dut.spawn_cnt == 0,
-		"mystery selects eight seconds of coin rain");
+		dut.coin_rain_timer == 8 && magnet_on && dut.magnet_timer == 8 &&
+		dut.spawn_cnt == 0,
+		"mystery selects coin rain and immediately enables magnet for eight seconds");
 	check_result(dut.spawn_type_eff <= 2,
 		"coin rain remaps queued objects to positive coins");
 	dut.obj_count = 0;
